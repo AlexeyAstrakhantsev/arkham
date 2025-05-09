@@ -216,7 +216,11 @@ class ArkhamRepository:
     def save_tag_categories(self, categories_data: Dict[str, List[Dict[str, str]]]):
         """Сохраняет категории тегов из JSON файла."""
         try:
+            logging.info(f"Начинаю сохранение категорий тегов в базу данных. Всего категорий: {len(categories_data)}")
+            
             for category_name, tags in categories_data.items():
+                logging.info(f"Обработка категории: {category_name} (тегов: {len(tags)})")
+                
                 # Проверяем существование категории
                 check_query = """
                 SELECT id FROM tag_categories WHERE name = %s
@@ -225,16 +229,20 @@ class ArkhamRepository:
                 
                 if not category_id:
                     # Создаем новую категорию
+                    logging.info(f"Создание новой категории: {category_name}")
                     insert_query = """
                     INSERT INTO tag_categories (name, created_at)
                     VALUES (%s, NOW())
                     RETURNING id
                     """
                     category_id = self.db.execute_query(insert_query, (category_name,), fetch_one=True)[0]
+                    logging.info(f"Категория {category_name} создана с ID: {category_id}")
                 else:
                     category_id = category_id[0]
+                    logging.info(f"Категория {category_name} уже существует с ID: {category_id}")
                 
                 # Сохраняем все теги для данной категории
+                saved_tags = 0
                 for tag in tags:
                     tag_name = tag.get('name')
                     tag_link = tag.get('link')
@@ -253,6 +261,11 @@ class ArkhamRepository:
                             VALUES (%s, %s, %s, NOW())
                             """
                             self.db.execute_query(insert_tag_query, (tag_name, tag_link, category_id))
+                            saved_tags += 1
+                            
+                logging.info(f"Сохранено {saved_tags} новых тегов для категории {category_name}")
+                
+            logging.info("Все категории тегов успешно сохранены в базу данных")
                             
         except Exception as e:
             logging.error(f"Ошибка при сохранении категорий тегов: {str(e)}")
@@ -371,19 +384,51 @@ def init_database():
             if not column_exists:
                 # Добавляем колонку chain
                 logging.info("Добавляем колонку chain в таблицу addresses")
-                cursor.execute("""
-                ALTER TABLE addresses 
-                ADD COLUMN chain VARCHAR(50) NOT NULL DEFAULT 'unknown'
-                """)
                 
-                # Обновляем уникальный индекс
-                cursor.execute("""
-                DROP INDEX IF EXISTS addresses_address_key
-                """)
-                cursor.execute("""
-                ALTER TABLE addresses 
-                ADD CONSTRAINT addresses_address_chain_unique UNIQUE (address, chain)
-                """)
+                try:
+                    # Получаем информацию о существующих ограничениях
+                    cursor.execute("""
+                    SELECT constraint_name 
+                    FROM information_schema.table_constraints 
+                    WHERE table_name = 'addresses' 
+                    AND constraint_type = 'UNIQUE'
+                    """)
+                    constraints = cursor.fetchall()
+                    
+                    if constraints:
+                        for constraint in constraints:
+                            constraint_name = constraint[0]
+                            logging.info(f"Найдено ограничение: {constraint_name}")
+                            try:
+                                logging.info(f"Удаляем ограничение {constraint_name}")
+                                cursor.execute(f"""
+                                ALTER TABLE addresses 
+                                DROP CONSTRAINT {constraint_name}
+                                """)
+                            except Exception as e:
+                                logging.warning(f"Не удалось удалить ограничение {constraint_name}: {str(e)}")
+                    else:
+                        logging.info("Не найдено ограничений уникальности для таблицы addresses")
+                    
+                    # Добавляем колонку chain
+                    cursor.execute("""
+                    ALTER TABLE addresses 
+                    ADD COLUMN chain VARCHAR(50) NOT NULL DEFAULT 'unknown'
+                    """)
+                    
+                    # Создаем новое ограничение с учетом колонки chain
+                    try:
+                        cursor.execute("""
+                        ALTER TABLE addresses 
+                        ADD CONSTRAINT addresses_address_chain_unique UNIQUE (address, chain)
+                        """)
+                        logging.info("Создано новое ограничение уникальности (address, chain)")
+                    except Exception as e:
+                        logging.warning(f"Не удалось создать новое ограничение: {str(e)}")
+                        
+                except Exception as e:
+                    logging.error(f"Ошибка при модификации структуры таблицы addresses: {str(e)}")
+                    # Продолжаем выполнение, чтобы попытаться обработать остальные таблицы
             
             # Проверяем другие колонки и добавляем их при необходимости
             columns_to_check = [

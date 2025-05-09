@@ -200,9 +200,9 @@ def process_tag(tag_link: str, output_file: str, repository: ArkhamRepository, t
 
 def main():
     # Пути к файлам из переменных окружения
-    tags_file = os.getenv("TAGS_FILE", "full_tags_by_type.json")
-    output_file = os.getenv("OUTPUT_FILE", "arkham_addresses.txt")
-    progress_file = os.getenv("PROGRESS_FILE", "arkham_progress.json")
+    tags_file = os.getenv("TAGS_FILE", "data/full_tags_by_type.json")
+    output_file = os.getenv("OUTPUT_FILE", "data/arkham_addresses.txt")
+    progress_file = os.getenv("PROGRESS_FILE", "data/arkham_progress.json")
     
     # Убедимся, что директории для файлов существуют
     os.makedirs(os.path.dirname(output_file) if os.path.dirname(output_file) else ".", exist_ok=True)
