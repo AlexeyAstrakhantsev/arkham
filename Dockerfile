@@ -11,6 +11,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Создаем директории для данных и логов
 RUN mkdir -p /app/data /app/logs
 
+# Копируем папку data
+COPY data/ /app/data/
+
 # Копируем код приложения
 COPY *.py .
 COPY .env .
