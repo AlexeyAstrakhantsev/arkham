@@ -279,7 +279,9 @@ def init_database():
         try:
             conn = psycopg2.connect(**db_config)
             conn.autocommit = True
+            logging.info(f"Успешное подключение к БД {db_config['database']}")
         except psycopg2.OperationalError as e:
+            logging.error(f"Ошибка подключения: {str(e)}")
             if "does not exist" in str(e):
                 # База данных не существует, создаем ее
                 db_config_temp = db_config.copy()
@@ -287,19 +289,24 @@ def init_database():
                 
                 logging.info(f"База данных {db_config['database']} не существует. Создаем...")
                 
-                conn_temp = psycopg2.connect(**db_config_temp)
-                conn_temp.autocommit = True
-                cursor_temp = conn_temp.cursor()
-                
-                # Создаем базу данных
-                cursor_temp.execute(f"CREATE DATABASE {db_config['database']}")
-                
-                cursor_temp.close()
-                conn_temp.close()
-                
-                # Подключаемся к новой базе данных
-                conn = psycopg2.connect(**db_config)
-                conn.autocommit = True
+                try:
+                    conn_temp = psycopg2.connect(**db_config_temp)
+                    conn_temp.autocommit = True
+                    cursor_temp = conn_temp.cursor()
+                    
+                    # Создаем базу данных
+                    cursor_temp.execute(f"CREATE DATABASE {db_config['database']}")
+                    
+                    cursor_temp.close()
+                    conn_temp.close()
+                    
+                    # Подключаемся к новой базе данных
+                    conn = psycopg2.connect(**db_config)
+                    conn.autocommit = True
+                    logging.info(f"База данных {db_config['database']} успешно создана")
+                except Exception as create_db_err:
+                    logging.error(f"Не удалось создать базу данных: {str(create_db_err)}")
+                    raise
             else:
                 raise
         
@@ -325,19 +332,82 @@ def init_database():
         )
         """)
         
-        # Создаем таблицу для адресов
+        # Проверяем, существует ли таблица addresses
         cursor.execute("""
-        CREATE TABLE IF NOT EXISTS addresses (
-            id SERIAL PRIMARY KEY,
-            address VARCHAR(255) NOT NULL,
-            name VARCHAR(255),
-            chain VARCHAR(50) NOT NULL,
-            entity_type VARCHAR(100),
-            created_at TIMESTAMP NOT NULL,
-            updated_at TIMESTAMP NOT NULL,
-            UNIQUE(address, chain)
+        SELECT EXISTS (
+            SELECT FROM information_schema.tables 
+            WHERE table_schema = 'public' 
+            AND table_name = 'addresses'
         )
         """)
+        table_exists = cursor.fetchone()[0]
+        
+        if not table_exists:
+            # Создаем таблицу для адресов
+            cursor.execute("""
+            CREATE TABLE addresses (
+                id SERIAL PRIMARY KEY,
+                address VARCHAR(255) NOT NULL,
+                name VARCHAR(255),
+                chain VARCHAR(50) NOT NULL,
+                entity_type VARCHAR(100),
+                created_at TIMESTAMP NOT NULL,
+                updated_at TIMESTAMP NOT NULL,
+                UNIQUE(address, chain)
+            )
+            """)
+        else:
+            # Проверяем, существует ли колонка chain
+            cursor.execute("""
+            SELECT EXISTS (
+                SELECT FROM information_schema.columns 
+                WHERE table_schema = 'public' 
+                AND table_name = 'addresses' 
+                AND column_name = 'chain'
+            )
+            """)
+            column_exists = cursor.fetchone()[0]
+            
+            if not column_exists:
+                # Добавляем колонку chain
+                logging.info("Добавляем колонку chain в таблицу addresses")
+                cursor.execute("""
+                ALTER TABLE addresses 
+                ADD COLUMN chain VARCHAR(50) NOT NULL DEFAULT 'unknown'
+                """)
+                
+                # Обновляем уникальный индекс
+                cursor.execute("""
+                DROP INDEX IF EXISTS addresses_address_key
+                """)
+                cursor.execute("""
+                ALTER TABLE addresses 
+                ADD CONSTRAINT addresses_address_chain_unique UNIQUE (address, chain)
+                """)
+            
+            # Проверяем другие колонки и добавляем их при необходимости
+            columns_to_check = [
+                ("entity_type", "VARCHAR(100)"),
+                ("updated_at", "TIMESTAMP NOT NULL DEFAULT NOW()")
+            ]
+            
+            for column_name, column_type in columns_to_check:
+                cursor.execute(f"""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.columns 
+                    WHERE table_schema = 'public' 
+                    AND table_name = 'addresses' 
+                    AND column_name = '{column_name}'
+                )
+                """)
+                column_exists = cursor.fetchone()[0]
+                
+                if not column_exists:
+                    logging.info(f"Добавляем колонку {column_name} в таблицу addresses")
+                    cursor.execute(f"""
+                    ALTER TABLE addresses 
+                    ADD COLUMN {column_name} {column_type}
+                    """)
         
         # Создаем таблицу для связи адресов и тегов
         cursor.execute("""
