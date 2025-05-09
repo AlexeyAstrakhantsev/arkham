@@ -15,10 +15,5 @@ RUN mkdir -p /app/data /app/logs
 COPY *.py .
 COPY .env .
 
-# Создаем и используем не-root пользователя
-RUN useradd -m appuser
-RUN chown -R appuser:appuser /app
-USER appuser
-
 # Запускаем парсер
 CMD ["python", "parser.py"] 
