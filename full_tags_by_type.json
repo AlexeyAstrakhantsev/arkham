@@ -1,0 +1,468 @@
+{
+  "Airdrop": [
+    {
+      "name": "Pengu Airdrop Recipient Cluster",
+      "link": "pengu-airdrop-recipient-cluster"
+    },
+    {
+      "name": "Airdrop Distributor",
+      "link": "airdrop-distributor"
+    },
+    {
+      "name": "Airdrop Recipient",
+      "link": "airdrop-recipient"
+    }
+  ],
+  "Blockchain Ops": [
+    {
+      "name": "Blockchain Infra",
+      "link": "blockchain-infra"
+    },
+    {
+      "name": "Smart Contract Platform",
+      "link": "smart-contract-platform"
+    },
+    {
+      "name": "Blockchain Scaling",
+      "link": "blockchain-scaling"
+    },
+    {
+      "name": "Bridge",
+      "link": "bridge"
+    },
+    {
+      "name": "Crosschain Interoperability",
+      "link": "crosschain-interoperability"
+    }
+  ],
+  "CeFi": [
+    {
+      "name": "Lending (Centralized)",
+      "link": "lending-(centralized)"
+    },
+    {
+      "name": "Centralized Exchange",
+      "link": "centralized-exchange"
+    }
+  ],
+  "Custody": [
+    {
+      "name": "Custodian",
+      "link": "custodian"
+    },
+    {
+      "name": "Zodia Custody",
+      "link": "zodia-custody"
+    },
+    {
+      "name": "Kingdom Trust Custody",
+      "link": "kingdom-trust-custody"
+    },
+    {
+      "name": "Bitcoin Suisse Custody",
+      "link": "bitcoin-suisse-custody"
+    },
+    {
+      "name": "Gemini Custody",
+      "link": "gemini-custody"
+    },
+    {
+      "name": "Komainu Custody",
+      "link": "komainu-custody"
+    },
+    {
+      "name": "Coinbase Prime Custody",
+      "link": "coinbase-prime-custody"
+    },
+    {
+      "name": "HashKey Custody",
+      "link": "hashkey-custody"
+    },
+    {
+      "name": "NYDIG Custody",
+      "link": "nydig-custody"
+    },
+    {
+      "name": "Cantor Fitzgerald Custody",
+      "link": "cantor-fitzgerald-custody"
+    },
+    {
+      "name": "Swissquote Custody",
+      "link": "swissquote-custody"
+    },
+    {
+      "name": "Copper Custody",
+      "link": "copper-custody"
+    },
+    {
+      "name": "BitGo Custody",
+      "link": "bitgo-custody"
+    }
+  ],
+  "DeFi": [
+    {
+      "name": "Decentralized Exchange",
+      "link": "decentralized-exchange"
+    },
+    {
+      "name": "Lending (Decentralized)",
+      "link": "lending-decentralized"
+    },
+    {
+      "name": "Derivatives",
+      "link": "derivatives"
+    },
+    {
+      "name": "Yield",
+      "link": "yield"
+    },
+    {
+      "name": "DEX Aggregator",
+      "link": "dex-aggregator"
+    }
+  ],
+  "Governance": [
+    {
+      "name": "Governor",
+      "link": "governor"
+    },
+    {
+      "name": "Governance Voter",
+      "link": "governance-voter"
+    },
+    {
+      "name": "Snapshot Delegator",
+      "link": "snapshot-delegator"
+    },
+    {
+      "name": "Snapshot Delegate",
+      "link": "snapshot-delegate"
+    },
+    {
+      "name": "Governance Delegator",
+      "link": "governance-delegator"
+    },
+    {
+      "name": "Governance Delegatee",
+      "link": "governance-delegatee"
+    },
+    {
+      "name": "Governance Token",
+      "link": "governance-token"
+    }
+  ],
+  "Government": [
+    {
+      "name": "Government",
+      "link": "government"
+    }
+  ],
+  "Illicit": [
+    {
+      "name": "Suspicious",
+      "link": "suspicious"
+    },
+    {
+      "name": "Bybit Hack Funds",
+      "link": "bybit-hack-funds"
+    },
+    {
+      "name": "Ponzi",
+      "link": "ponzi"
+    },
+    {
+      "name": "Gambling",
+      "link": "gambling"
+    },
+    {
+      "name": "Ransomware",
+      "link": "ransomware"
+    },
+    {
+      "name": "Scam",
+      "link": "scam"
+    },
+    {
+      "name": "Darkweb",
+      "link": "darkweb"
+    },
+    {
+      "name": "Hacker",
+      "link": "hacker"
+    },
+    {
+      "name": "Tornado Cash Recipient",
+      "link": "tornado-cash-recipient"
+    },
+    {
+      "name": "Tornado Cash Depositor",
+      "link": "tornado-cash-depositor"
+    },
+    {
+      "name": "OFAC Sanctioned",
+      "link": "ofac-sanctioned"
+    },
+    {
+      "name": "Banned by USDC",
+      "link": "banned-by-usdc"
+    },
+    {
+      "name": "Banned by USDT",
+      "link": "banned-by-usdt"
+    }
+  ],
+  "Miner/Validator": [
+    {
+      "name": "Miner",
+      "link": "miner"
+    },
+    {
+      "name": "Validator",
+      "link": "validator"
+    },
+    {
+      "name": "Braiins Pool Participant",
+      "link": "braiins-pool-participant"
+    },
+    {
+      "name": "Luxor Tech Pool Participant",
+      "link": "luxor-tech-pool-participant"
+    },
+    {
+      "name": "Foundry Pool Participant",
+      "link": "foundry-pool-participant"
+    },
+    {
+      "name": "MEV Fee Recipient",
+      "link": "mev-fee-recipient"
+    }
+  ],
+  "NFT": [
+    {
+      "name": "NFT",
+      "link": "nft"
+    },
+    {
+      "name": "NFT Marketplace",
+      "link": "nft-marketplace"
+    }
+  ],
+  "Other": [
+    {
+      "name": "Meme",
+      "link": "meme"
+    },
+    {
+      "name": "DAO",
+      "link": "dao"
+    },
+    {
+      "name": "Stablecoin",
+      "link": "stablecoin"
+    },
+    {
+      "name": "CDP",
+      "link": "cdp"
+    },
+    {
+      "name": "Brokerage",
+      "link": "brokerage"
+    },
+    {
+      "name": "Oracle",
+      "link": "oracle"
+    },
+    {
+      "name": "Gaming",
+      "link": "gaming"
+    },
+    {
+      "name": "Charity",
+      "link": "charity"
+    },
+    {
+      "name": "Privacy",
+      "link": "privacy"
+    },
+    {
+      "name": "Insurance",
+      "link": "insurance"
+    },
+    {
+      "name": "Real World Assets",
+      "link": "real-world-assets"
+    },
+    {
+      "name": "Exchange-Traded Product",
+      "link": "exchange-traded-product"
+    },
+    {
+      "name": "Genesis Creditor",
+      "link": "genesis-creditor"
+    },
+    {
+      "name": "Genesis Block Address",
+      "link": "genesis-block-address"
+    },
+    {
+      "name": "Whale",
+      "link": "whale"
+    },
+    {
+      "name": "Fundraise",
+      "link": "fundraise"
+    },
+    {
+      "name": "Input Data Messenger",
+      "link": "input-data-messenger"
+    },
+    {
+      "name": "Creator of Token",
+      "link": "creator-of-token"
+    },
+    {
+      "name": "Token Creator",
+      "link": "token-creator"
+    },
+    {
+      "name": "Tron Account Created",
+      "link": "tron-account-created"
+    },
+    {
+      "name": "Tron Account Creater",
+      "link": "tron-account-creater"
+    },
+    {
+      "name": "Donor",
+      "link": "donor"
+    },
+    {
+      "name": "Tron Energy Delegator",
+      "link": "tron-energy-delegator"
+    },
+    {
+      "name": "Tron Energy Delegate",
+      "link": "tron-energy-delegate"
+    },
+    {
+      "name": "TRX Staker",
+      "link": "trx-staker"
+    },
+    {
+      "name": "Early Token Holder",
+      "link": "early-token-holder"
+    },
+    {
+      "name": "Solana Stake Unlock",
+      "link": "solana-stake-unlock"
+    },
+    {
+      "name": "Compromised Address",
+      "link": "compromised-address"
+    },
+    {
+      "name": "Burn Address",
+      "link": "burn-address"
+    }
+  ],
+  "Smart Contracts": [
+    {
+      "name": "MultiSig Deployer",
+      "link": "multisig-deployer"
+    },
+    {
+      "name": "Token Deployer",
+      "link": "token-deployer"
+    },
+    {
+      "name": "Pool Deployer",
+      "link": "pool-deployer"
+    },
+    {
+      "name": "MultiSig",
+      "link": "multisig"
+    },
+    {
+      "name": "Squads Vault",
+      "link": "squads-vault"
+    },
+    {
+      "name": "Gnosis Safes with Signers",
+      "link": "gnosis-safes-with-signers"
+    },
+    {
+      "name": "Signers of Gnosis Safes",
+      "link": "signers-of-gnosis-safes"
+    },
+    {
+      "name": "Gnosis Safes with Previous Signers",
+      "link": "gnosis-safes-with-previous-signers"
+    },
+    {
+      "name": "Previous Signers of Gnosis Safes",
+      "link": "previous-signers-of-gnosis-safes"
+    },
+    {
+      "name": "First Mint of Token",
+      "link": "first-mint-of-token"
+    },
+    {
+      "name": "First Mint",
+      "link": "first-mint"
+    }
+  ],
+  "Social": [
+    {
+      "name": "Key Opinion Leader -kol",
+      "link": "kol"
+    },
+    {
+      "name": "Star Atlas",
+      "link": "star-atlas"
+    },
+    {
+      "name": "TRUMP Dinner Leaderboard",
+      "link": "trump-dinner"
+    },
+    {
+      "name": "Coinbase Verified Account",
+      "link": "coinbase-verified"
+    }
+  ],
+  "Staking": [
+    {
+      "name": "Liquid Staking",
+      "link": "liquid-staking"
+    },
+    {
+      "name": "Beacon Depositor",
+      "link": "beacon-depositor"
+    },
+    {
+      "name": "Tokenized ETH2 Staker",
+      "link": "tokenized-eth2-staker"
+    }
+  ],
+  "Trading": [
+    {
+      "name": "OTC",
+      "link": "otc"
+    },
+    {
+      "name": "Fund Decentralized",
+      "link": "fund-decentralized"
+    },
+    {
+      "name": "Individual",
+      "link": "individual"
+    },
+    {
+      "name": "MEV",
+      "link": "mev"
+    },
+    {
+      "name": "Fund",
+      "link": "fund"
+    }
+  ]
+}
