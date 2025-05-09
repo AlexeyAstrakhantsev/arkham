@@ -6,8 +6,8 @@ services:
       context: .
       dockerfile: Dockerfile
     volumes:
-      - ./data:/app/data
       - ./logs:/app/logs
+      - ./out:/app/out
     restart: on-failure
     environment:
       - DB_HOST=host.docker.internal
@@ -15,5 +15,8 @@ services:
       - DB_NAME=arkham_db
       - DB_USER=postgres
       - DB_PASSWORD=postgres
+      - TAGS_FILE=/app/data/full_tags_by_type.json
+      - OUTPUT_FILE=/app/out/arkham_addresses.txt
+      - PROGRESS_FILE=/app/out/arkham_progress.json
     extra_hosts:
       - "host.docker.internal:host-gateway" 

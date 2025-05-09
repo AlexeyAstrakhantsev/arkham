@@ -13,6 +13,8 @@ RUN mkdir -p /app/data /app/logs
 
 # Копируем папку data
 COPY data/ /app/data/
+# Проверка содержимого копированной директории
+RUN echo "Содержимое директории data:" && ls -la /app/data/
 
 # Копируем код приложения
 COPY *.py .
