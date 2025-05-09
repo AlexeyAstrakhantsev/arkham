@@ -154,8 +154,8 @@ def process_tag(tag_link: str, output_file: str, repository: ArkhamRepository, t
                 
                 # Проверяем, если возвращается все время одинаковое количество адресов,
                 # и достигли большого номера страницы, возможно API зациклилось
-                if len(addresses) == 51 and page > 11:
-                    logging.warning(f"Достигнуто большое количество страниц ({page}) с одинаковым количеством адресов. Возможно, API зациклилось. Прерываем обработку тега {tag_link}.")
+                if page > 10:
+                    logging.warning(f"Достигнуто лимит страниц ({page}). Прерываем обработку тега {tag_link}.")
                     has_more_data = False
                     break
                 
