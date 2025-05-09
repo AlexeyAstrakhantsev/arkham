@@ -61,16 +61,36 @@ class Database:
             conn = self.get_connection()
             cursor = conn.cursor()
             
-            cursor.execute(query, params)
-            
-            if fetch:
-                result = cursor.fetchall()
-            elif fetch_one:
-                result = cursor.fetchone()
+            try:
+                # Логирование запроса, но без полного текста параметров для безопасности
+                param_preview = str(params)[:100] if params else "None"
+                logging.debug(f"Выполнение SQL: {query[:100]}... с параметрами: {param_preview}...")
                 
-            conn.commit()
-            return result
-            
+                cursor.execute(query, params)
+                
+                if fetch:
+                    result = cursor.fetchall()
+                    logging.debug(f"Получено {len(result)} записей")
+                elif fetch_one:
+                    result = cursor.fetchone()
+                    logging.debug(f"Получена запись: {result}")
+                else:
+                    # Для INSERT/UPDATE/DELETE запросов проверяем число затронутых строк
+                    affected_rows = cursor.rowcount
+                    logging.debug(f"Затронуто строк: {affected_rows}")
+                    
+                conn.commit()
+                
+                # Проверка вернувшегося результата
+                if (fetch or fetch_one) and result is None:
+                    logging.warning(f"Запрос не вернул данных: {query[:100]}...")
+                
+                return result
+            except Exception as e:
+                logging.error(f"Ошибка при выполнении SQL запроса: {str(e)}")
+                logging.error(f"Запрос: {query[:100]}... Параметры: {param_preview}...")
+                conn.rollback()
+                raise
         except Exception as e:
             if conn:
                 conn.rollback()
@@ -99,18 +119,24 @@ class ArkhamRepository:
     def save_address(self, address_data: Dict[str, Any]) -> Optional[int]:
         """Сохраняет адрес и связанные с ним теги в базу данных."""
         try:
+            address = address_data['address']
+            chain = address_data['chain']
+            logging.debug(f"Попытка сохранения адреса: {address} (chain: {chain})")
+            
             # Проверяем, существует ли адрес
             check_query = """
             SELECT id FROM addresses WHERE address = %s AND chain = %s
             """
             address_id = self.db.execute_query(
                 check_query, 
-                (address_data['address'], address_data['chain']), 
+                (address, chain), 
                 fetch_one=True
             )
             
             if address_id:
                 address_id = address_id[0]
+                logging.debug(f"Адрес {address} уже существует в БД с ID: {address_id}")
+                
                 # Обновляем существующий адрес
                 update_query = """
                 UPDATE addresses 
@@ -121,6 +147,7 @@ class ArkhamRepository:
                     update_query, 
                     (address_data['name'], address_data['entity_type'], address_id)
                 )
+                logging.debug(f"Адрес {address} обновлен")
             else:
                 # Вставляем новый адрес
                 insert_query = """
@@ -128,68 +155,105 @@ class ArkhamRepository:
                 VALUES (%s, %s, %s, %s, NOW(), NOW())
                 RETURNING id
                 """
-                address_id = self.db.execute_query(
-                    insert_query, 
-                    (
-                        address_data['address'], 
-                        address_data['name'], 
-                        address_data['chain'], 
-                        address_data['entity_type']
-                    ), 
-                    fetch_one=True
-                )[0]
+                try:
+                    address_id = self.db.execute_query(
+                        insert_query, 
+                        (
+                            address, 
+                            address_data['name'], 
+                            chain, 
+                            address_data['entity_type']
+                        ), 
+                        fetch_one=True
+                    )
+                    
+                    if address_id:
+                        address_id = address_id[0]
+                        logging.debug(f"Адрес {address} добавлен в БД с ID: {address_id}")
+                    else:
+                        logging.error(f"Не удалось получить ID для нового адреса {address}")
+                        return None
+                except Exception as e:
+                    logging.error(f"Ошибка при добавлении адреса {address} в БД: {str(e)}")
+                    return None
             
             # Сохраняем теги для адреса
             if 'tags' in address_data and address_data['tags']:
+                tags_count = len(address_data['tags'])
+                saved_tags = 0
                 for tag_data in address_data['tags']:
-                    self._save_tag_for_address(address_id, tag_data)
+                    try:
+                        self._save_tag_for_address(address_id, tag_data)
+                        saved_tags += 1
+                    except Exception as e:
+                        logging.error(f"Ошибка при сохранении тега {tag_data.get('tag', '')} для адреса {address}: {str(e)}")
+                
+                logging.debug(f"Сохранено {saved_tags}/{tags_count} тегов для адреса {address}")
             
             return address_id
             
+        except KeyError as e:
+            logging.error(f"Отсутствует обязательное поле в данных адреса: {str(e)}")
+            return None
         except Exception as e:
-            logging.error(f"Ошибка при сохранении адреса {address_data['address']}: {str(e)}")
-            raise
+            logging.error(f"Ошибка при сохранении адреса {address_data.get('address', 'unknown')}: {str(e)}")
+            return None
     
     def _save_tag_for_address(self, address_id: int, tag_data: Dict[str, str]):
         """Сохраняет тег и его связь с адресом."""
         try:
+            tag_name = tag_data['tag']
+            tag_link = tag_data['link']
+            logging.debug(f"Сохранение тега '{tag_name}' для адреса ID: {address_id}")
+            
             # Проверяем, существует ли тег
             check_query = """
             SELECT id FROM tags WHERE link = %s
             """
-            tag_id = self.db.execute_query(check_query, (tag_data['link'],), fetch_one=True)
+            tag_id = self.db.execute_query(check_query, (tag_link,), fetch_one=True)
             
             if not tag_id:
                 # Получаем ID категории
+                category_name = tag_data['category']
                 category_query = """
                 SELECT id FROM tag_categories WHERE name = %s
                 """
-                category_id = self.db.execute_query(category_query, (tag_data['category'],), fetch_one=True)
+                category_id = self.db.execute_query(category_query, (category_name,), fetch_one=True)
                 
                 if not category_id:
                     # Если категории нет, создаем ее
+                    logging.debug(f"Создание новой категории: {category_name}")
                     insert_category_query = """
                     INSERT INTO tag_categories (name, created_at)
                     VALUES (%s, NOW())
                     RETURNING id
                     """
-                    category_id = self.db.execute_query(insert_category_query, (tag_data['category'],), fetch_one=True)[0]
+                    category_id = self.db.execute_query(insert_category_query, (category_name,), fetch_one=True)[0]
+                    logging.debug(f"Категория {category_name} создана с ID: {category_id}")
                 else:
                     category_id = category_id[0]
+                    logging.debug(f"Категория {category_name} уже существует с ID: {category_id}")
                 
                 # Вставляем новый тег
+                logging.debug(f"Создание нового тега: {tag_name}")
                 insert_tag_query = """
                 INSERT INTO tags (tag, link, category_id, created_at)
                 VALUES (%s, %s, %s, NOW())
                 RETURNING id
                 """
-                tag_id = self.db.execute_query(
-                    insert_tag_query, 
-                    (tag_data['tag'], tag_data['link'], category_id), 
-                    fetch_one=True
-                )[0]
+                try:
+                    tag_id = self.db.execute_query(
+                        insert_tag_query, 
+                        (tag_name, tag_link, category_id), 
+                        fetch_one=True
+                    )[0]
+                    logging.debug(f"Тег {tag_name} создан с ID: {tag_id}")
+                except Exception as e:
+                    logging.error(f"Ошибка при создании тега {tag_name}: {str(e)}")
+                    raise
             else:
                 tag_id = tag_id[0]
+                logging.debug(f"Тег {tag_name} уже существует с ID: {tag_id}")
             
             # Проверяем, существует ли связь адрес-тег
             check_relation_query = """
@@ -203,14 +267,25 @@ class ArkhamRepository:
             
             if not relation:
                 # Создаем связь адрес-тег
+                logging.debug(f"Создание связи адрес ID: {address_id} - тег ID: {tag_id}")
                 insert_relation_query = """
                 INSERT INTO address_tags (address_id, tag_id, created_at)
                 VALUES (%s, %s, NOW())
                 """
-                self.db.execute_query(insert_relation_query, (address_id, tag_id))
+                try:
+                    self.db.execute_query(insert_relation_query, (address_id, tag_id))
+                    logging.debug(f"Связь адрес-тег создана")
+                except Exception as e:
+                    logging.error(f"Ошибка при создании связи адрес-тег: {str(e)}")
+                    raise
+            else:
+                logging.debug(f"Связь адрес-тег уже существует")
                 
+        except KeyError as e:
+            logging.error(f"Отсутствует обязательное поле в данных тега: {str(e)}")
+            raise
         except Exception as e:
-            logging.error(f"Ошибка при сохранении тега {tag_data['tag']} для адреса {address_id}: {str(e)}")
+            logging.error(f"Ошибка при сохранении тега для адреса {address_id}: {str(e)}")
             raise
     
     def save_tag_categories(self, categories_data: Dict[str, List[Dict[str, str]]]):

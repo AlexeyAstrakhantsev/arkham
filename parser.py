@@ -120,12 +120,29 @@ def process_tag(tag_link: str, output_file: str, repository: ArkhamRepository, t
                 response.raise_for_status()
                 
                 data = response.json()
+                
+                # Логирование структуры ответа для диагностики
+                if 'addresses' not in data:
+                    logging.warning(f"В ответе API отсутствует поле 'addresses'. Структура ответа: {json.dumps(data, indent=2)[:500]}...")
+                    # Проверяем наличие других полей в ответе
+                    available_fields = list(data.keys())
+                    logging.warning(f"Доступные поля в ответе: {available_fields}")
+                    has_more_data = False
+                    break
+                
                 addresses = data.get('addresses', [])
                 
                 # Если нет адресов или их меньше ожидаемого количества, завершаем обработку тега
                 if not addresses:
                     has_more_data = False
                     logging.info(f"Данные для тега {tag_link} закончились на странице {page-1}.")
+                    break
+                
+                # Проверяем, если возвращается все время одинаковое количество адресов,
+                # и достигли большого номера страницы, возможно API зациклилось
+                if len(addresses) == 51 and page > 1000:
+                    logging.warning(f"Достигнуто большое количество страниц ({page}) с одинаковым количеством адресов. Возможно, API зациклилось. Прерываем обработку тега {tag_link}.")
+                    has_more_data = False
                     break
                     
                 # Добавляем адреса в файл и базу данных
