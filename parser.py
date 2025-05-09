@@ -204,6 +204,25 @@ def main():
     output_file = os.getenv("OUTPUT_FILE", "data/arkham_addresses.txt")
     progress_file = os.getenv("PROGRESS_FILE", "data/arkham_progress.json")
     
+    # Логирование путей к файлам
+    logging.info(f"Путь к файлу тегов: {tags_file}")
+    logging.info(f"Абсолютный путь к файлу тегов: {os.path.abspath(tags_file)}")
+    logging.info(f"Путь к файлу результатов: {output_file}")
+    logging.info(f"Путь к файлу прогресса: {progress_file}")
+    
+    # Проверка наличия файла с тегами
+    if os.path.exists(tags_file):
+        logging.info(f"Файл тегов найден: {tags_file}")
+    else:
+        logging.error(f"Файл тегов не найден: {tags_file}")
+        # Выводим список файлов в директории data
+        data_dir = os.path.dirname(tags_file)
+        if os.path.exists(data_dir):
+            files = os.listdir(data_dir)
+            logging.info(f"Содержимое директории {data_dir}: {files}")
+        else:
+            logging.error(f"Директория {data_dir} не существует")
+    
     # Убедимся, что директории для файлов существуют
     os.makedirs(os.path.dirname(output_file) if os.path.dirname(output_file) else ".", exist_ok=True)
     os.makedirs(os.path.dirname(progress_file) if os.path.dirname(progress_file) else ".", exist_ok=True)
