@@ -75,12 +75,17 @@ def create_tag_categories_map(tags_data) -> Dict[str, str]:
                 result[link] = category
     return result
 
-def process_tag(tag_link: str, output_file: str, repository: ArkhamRepository, tag_categories: Dict[str, str]) -> int:
-    """Обрабатывает все страницы для одного тега и сохраняет результат в базу данных и файл."""
-    page = 1
-    total_addresses = 0
-    has_more_data = True
+def get_arkham_tag_data(tag_link, page):
+    """
+    Получает данные из API Arkham для указанного тега и страницы.
     
+    Args:
+        tag_link (str): Ссылка на тег для получения данных.
+        page (int): Номер страницы результатов.
+    
+    Returns:
+        tuple: (dict с данными, boolean флаг успеха)
+    """
     headers = {
         "accept": "application/json, text/plain, */*",
         "accept-encoding": "gzip, deflate, br, zstd",
@@ -97,172 +102,186 @@ def process_tag(tag_link: str, output_file: str, repository: ArkhamRepository, t
         "arkham_platform_session": os.getenv("ARKHAM_SESSION", "c8f12120-9264-4703-83b2-70c05fc32012")
     }
     
-    with open(output_file, 'a', encoding='utf-8') as f:
-        f.write(f"\n\n=== ТЕГ: {tag_link} ===\n")
-    
     # Получаем ограничения API из переменных окружения
     max_retries = int(os.getenv("API_MAX_RETRIES", "3"))
     retry_delay = int(os.getenv("API_RETRY_DELAY", "5"))
     request_timeout = int(os.getenv("API_REQUEST_TIMEOUT", "30"))
     
-    while has_more_data:
-        url = f"https://api.arkm.com/tag/top?tag={tag_link}&page={page}"
-        
-        for retry in range(max_retries):
-            try:
-                logging.info(f"Запрос данных для тега {tag_link}, страница {page}...")
-                response = requests.get(
-                    url, 
-                    headers=headers, 
-                    cookies=cookies, 
-                    timeout=request_timeout
-                )
-                response.raise_for_status()
-                
-                data = response.json()
-                
-                # Логируем краткую информацию об API ответе, включая hasMore параметр
-                address_count = len(data.get('addresses', []))
-                has_more = data.get('hasMore', False)
-                other_keys = [k for k in data.keys() if k not in ('addresses', 'hasMore')]
-                
-                # Логируем основную информацию о полученных данных на уровне INFO
-                logging.info(f"API ответ: тег={tag_link}, страница={page}, адресов={address_count}, hasMore={has_more}, другие ключи={other_keys}")
-                
-                # Проверяем, есть ли повторяющиеся адреса
-                if address_count > 1:
-                    addresses_set = {addr.get('address') for addr in data.get('addresses', [])}
-                    if len(addresses_set) < address_count:
-                        logging.info(f"ВНИМАНИЕ: API вернул {address_count} адресов, но только {len(addresses_set)} уникальных")
-                        # Выводим примеры повторяющихся адресов
-                        duplicate_count = {}
-                        for addr in data.get('addresses', []):
-                            address = addr.get('address')
-                            duplicate_count[address] = duplicate_count.get(address, 0) + 1
-                        
-                        duplicates = [addr for addr, count in duplicate_count.items() if count > 1]
-                        if duplicates:
-                            logging.info(f"Повторяющиеся адреса (первые 5): {duplicates[:5]}")
-                
-                addresses = data.get('addresses', [])
-                
-                # Если нет адресов или их меньше ожидаемого количества, завершаем обработку тега
-                if not addresses:
-                    has_more_data = False
-                    logging.info(f"Данные для тега {tag_link} закончились на странице {page-1}.")
-                    break
-                
-                # Проверяем, если возвращается все время одинаковое количество адресов,
-                # и достигли большого номера страницы, возможно API зациклилось
-                if page > 10:
-                    logging.warning(f"Достигнуто лимит страниц ({page}). Прерываем обработку тега {tag_link}.")
-                    has_more_data = False
-                    break
-                
-                # Ограничиваем количество страниц для обработки одного тега
-                max_pages = int(os.getenv("API_MAX_PAGES", "2000"))
-                if page >= max_pages:
-                    logging.warning(f"Достигнуто максимальное количество страниц ({max_pages}) для тега {tag_link}. Прерываем обработку.")
-                    has_more_data = False
-                    break
-                    
-                # Добавляем адреса в файл и базу данных
-                try:
-                    with open(output_file, 'a', encoding='utf-8') as f:
-                        f.write(f"\n-- Страница {page} --\n")
-                        
-                        # Счетчик для сохраненных адресов
-                        saved_addresses = 0
-                        duplicate_addresses = 0
-                        
-                        for addr in addresses:
-                            address = addr.get('address', 'N/A')
-                            chain = addr.get('chain', 'unknown')
-                            entity = addr.get('arkhamEntity', {})
-                            name = entity.get('name', 'N/A')
-                            entity_type = entity.get('type', '')
-                            
-                            # Извлекаем и форматируем теги для вывода в файл
-                            tags_str = format_tags_from_array(addr.get('populatedTags', []))
-                            
-                            # Извлекаем теги для сохранения в БД
-                            tags = extract_tags(addr.get('populatedTags', []), tag_categories)
-                            
-                            # Записываем в файл
-                            f.write(f"{address} - {name} - {tags_str}\n")
-                            
-                            # Сохраняем в БД
-                            address_data = {
-                                'address': address,
-                                'name': name,
-                                'chain': chain,
-                                'entity_type': entity_type,
-                                'tags': tags
-                            }
-                            
-                            try:
-                                address_id = repository.save_address(address_data)
-                                if address_id:
-                                    saved_addresses += 1
-                                else:
-                                    duplicate_addresses += 1
-                            except Exception as e:
-                                logging.error(f"Ошибка при сохранении адреса {address} в БД: {str(e)}")
-                        
-                        # Логируем результаты сохранения адресов
-                        logging.info(f"Страница {page}: сохранено новых адресов: {saved_addresses}, уже существующих: {duplicate_addresses}")
-                    
-                except Exception as e:
-                    logging.error(f"Ошибка при сохранении адресов: {str(e)}")
-                
-                total_addresses += len(addresses)
-                logging.info(f"Обработано {len(addresses)} адресов для тега {tag_link}, страница {page}")
-                
-                # Переходим к следующей странице
-                page += 1
-                
-                # Небольшая пауза между запросами из переменной окружения
-                sleep_time = float(os.getenv("API_REQUEST_DELAY", "1.0"))
-                time.sleep(sleep_time)
-                
-                # Успешный запрос, выходим из цикла повторных попыток
-                break
-                
-            except requests.exceptions.HTTPError as e:
-                if response.status_code == 429:
-                    # Rate limiting, длительная пауза
-                    rate_limit_delay = int(os.getenv("API_RATE_LIMIT_DELAY", "60"))
-                    logging.warning(f"Превышен лимит запросов API (429). Ожидание {rate_limit_delay} секунд...")
-                    time.sleep(rate_limit_delay)
-                elif retry < max_retries - 1:
-                    logging.warning(f"HTTP ошибка при запросе: {str(e)}. Повторная попытка {retry+1}/{max_retries} через {retry_delay} сек...")
-                    time.sleep(retry_delay)
-                else:
-                    logging.error(f"HTTP ошибка после {max_retries} попыток: {str(e)}")
-                    has_more_data = False
-                    break
-                    
-            except (requests.exceptions.RequestException, json.JSONDecodeError) as e:
-                if retry < max_retries - 1:
-                    logging.warning(f"Ошибка запроса: {str(e)}. Повторная попытка {retry+1}/{max_retries} через {retry_delay} сек...")
-                    time.sleep(retry_delay)
-                else:
-                    logging.error(f"Ошибка запроса после {max_retries} попыток: {str(e)}")
-                    has_more_data = False
-                    break
+    url = f"https://api.arkm.com/tag/top?tag={tag_link}&page={page}"
     
+    for retry in range(max_retries):
+        try:
+            logging.info(f"Запрос данных для тега {tag_link}, страница {page}...")
+            response = requests.get(
+                url, 
+                headers=headers, 
+                cookies=cookies, 
+                timeout=request_timeout
+            )
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            # Небольшая пауза между запросами из переменной окружения
+            sleep_time = float(os.getenv("API_REQUEST_DELAY", "1.0"))
+            time.sleep(sleep_time)
+            
+            return data, True
+            
+        except requests.exceptions.HTTPError as e:
+            if response.status_code == 429:
+                # Rate limiting, длительная пауза
+                rate_limit_delay = int(os.getenv("API_RATE_LIMIT_DELAY", "60"))
+                logging.warning(f"Превышен лимит запросов API (429). Ожидание {rate_limit_delay} секунд...")
+                time.sleep(rate_limit_delay)
+            elif retry < max_retries - 1:
+                logging.warning(f"HTTP ошибка при запросе: {str(e)}. Повторная попытка {retry+1}/{max_retries} через {retry_delay} сек...")
+                time.sleep(retry_delay)
+            else:
+                logging.error(f"HTTP ошибка после {max_retries} попыток: {str(e)}")
+                return {}, False
+                
+        except (requests.exceptions.RequestException, json.JSONDecodeError) as e:
+            if retry < max_retries - 1:
+                logging.warning(f"Ошибка запроса: {str(e)}. Повторная попытка {retry+1}/{max_retries} через {retry_delay} сек...")
+                time.sleep(retry_delay)
+            else:
+                logging.error(f"Ошибка запроса после {max_retries} попыток: {str(e)}")
+                return {}, False
+    
+    return {}, False
+
+def process_tag(tag_link, output_file, repository, tag_categories):
+    """
+    Обрабатывает конкретный тег, загружая адреса по нему из API Arkham Intel
+    и сохраняя их в базу данных.
+    
+    Args:
+        tag_link (str): Ссылка на тег для обработки.
+        output_file (str): Имя файла для вывода результатов (не используется).
+        repository (ArkhamRepository): Репозиторий для сохранения данных.
+        tag_categories (dict): Словарь маппинга ссылок тегов к их категориям.
+    
+    Returns:
+        int: Количество найденных адресов.
+    """
+    page = 0
+    total_addresses = 0
+    previous_addresses_count = 0
+    count_same_addresses = 0
+    max_pages = int(os.getenv("API_MAX_PAGES", "2000"))
+    
+    # Список для подсчета уникальных адресов
+    all_addresses = set()
+    
+    while True:
+        page += 1
+        logging.info(f"Обработка страницы {page} для тега {tag_link}")
+        
+        # Получаем JSON с данными
+        response, is_success = get_arkham_tag_data(tag_link, page)
+        
+        if not is_success:
+            logging.error(f"Не удалось получить данные для тега {tag_link} на странице {page}")
+            break
+        
+        # Получаем и проверяем наличие адресов в ответе
+        address_data = response.get('addresses', [])
+        has_more = response.get('hasMore', False)
+        
+        # Логирование структуры API ответа
+        logging.info(f"API ответ: получено {len(address_data)} адресов, hasMore={has_more}")
+        if len(address_data) == 0:
+            logging.info(f"Ключи в ответе API: {list(response.keys())}")
+        else:
+            logging.info(f"Первый адрес: {address_data[0] if address_data else 'нет'}")
+            
+        # Проверяем на уникальность адресов
+        current_addresses = set(addr.get('address') for addr in address_data if addr.get('address'))
+        new_unique_addresses = current_addresses - all_addresses
+        
+        if len(current_addresses) > 0 and len(new_unique_addresses) < len(current_addresses):
+            logging.warning(f"Найдены дубликаты адресов на странице {page}: "
+                           f"{len(current_addresses) - len(new_unique_addresses)} дубликатов")
+        
+        all_addresses.update(current_addresses)
+        
+        # Проверка на зацикливание API: если возвращается то же количество адресов и мы на большой странице
+        if len(address_data) == previous_addresses_count and page > 1:
+            count_same_addresses += 1
+            if count_same_addresses > 10:
+                logging.warning(f"API возвращает одинаковое количество адресов ({len(address_data)}) "
+                               f"на {count_same_addresses} страницах подряд. Возможно зацикливание.")
+                if page > 1000:  # Если мы на большой странице, вероятно, это зацикливание
+                    logging.warning(f"Достигнут порог подозрения на зацикливание API на странице {page}. "
+                                   f"Останавливаем обработку этого тега.")
+                    break
+        else:
+            count_same_addresses = 0
+        
+        previous_addresses_count = len(address_data)
+        
+        # Если достигнут предел страниц, останавливаем обработку
+        if page >= max_pages:
+            logging.warning(f"Достигнут максимальный предел страниц ({max_pages}) для тега {tag_link}. "
+                           f"Останавливаем обработку этого тега.")
+            break
+        
+        # Если список адресов пуст, прекращаем обработку
+        if not address_data:
+            logging.info(f"Нет больше адресов для тега {tag_link}")
+            break
+        
+        new_addresses = 0
+        existing_addresses = 0
+        
+        # Обрабатываем каждый адрес
+        for addr_data in address_data:
+            addr = addr_data.get('address')
+            chain = addr_data.get('chain', 'unknown')
+            entity_name = addr_data.get('entityName') or addr_data.get('entity', {}).get('name', '')
+            entity_type = addr_data.get('entityType') or addr_data.get('entity', {}).get('type', '')
+            
+            # Получаем теги для адреса
+            tags = {}
+            if tag_categories.get(tag_link):
+                category = tag_categories[tag_link]
+                tags[category] = [tag_link]
+            
+            # Если адрес найден, сохраняем его
+            if addr:
+                total_addresses += 1
+                
+                # Пытаемся сохранить адрес в БД
+                try:
+                    result = repository.save_address(addr, chain, entity_name, entity_type)
+                    # Если адрес новый (не None), сохраняем теги
+                    if result is not None:
+                        repository.save_tags(addr, tags)
+                        new_addresses += 1
+                    else:
+                        existing_addresses += 1
+                except Exception as e:
+                    logging.error(f"Ошибка при сохранении адреса {addr}: {str(e)}")
+        
+        logging.info(f"Страница {page}: сохранено {new_addresses} новых и {existing_addresses} существующих адресов")
+        
+        # Если нет больше страниц, прекращаем обработку
+        if not has_more:
+            logging.info(f"Больше нет страниц для тега {tag_link}")
+            break
+    
+    logging.info(f"Обработка тега {tag_link} завершена. Всего адресов: {total_addresses}")
     return total_addresses
 
 def main():
     # Пути к файлам из переменных окружения
     tags_file = os.getenv("TAGS_FILE", "data/full_tags_by_type.json")
-    output_file = os.getenv("OUTPUT_FILE", "data/arkham_addresses.txt")
+    output_file = os.getenv("OUTPUT_FILE", "data/arkham_addresses.txt")  # Оставляем для совместимости
     progress_file = os.getenv("PROGRESS_FILE", "data/arkham_progress.json")
     
     # Логирование путей к файлам
     logging.info(f"Путь к файлу тегов: {tags_file}")
-    logging.info(f"Абсолютный путь к файлу тегов: {os.path.abspath(tags_file)}")
-    logging.info(f"Путь к файлу результатов: {output_file}")
     logging.info(f"Путь к файлу прогресса: {progress_file}")
     
     # Проверка наличия файла с тегами
@@ -277,9 +296,9 @@ def main():
             logging.info(f"Содержимое директории {data_dir}: {files}")
         else:
             logging.error(f"Директория {data_dir} не существует")
+            return
     
     # Убедимся, что директории для файлов существуют
-    os.makedirs(os.path.dirname(output_file) if os.path.dirname(output_file) else ".", exist_ok=True)
     os.makedirs(os.path.dirname(progress_file) if os.path.dirname(progress_file) else ".", exist_ok=True)
     
     try:
@@ -292,14 +311,6 @@ def main():
         
         # Загружаем прогресс
         progress = load_progress(progress_file)
-        
-        # Если файл с результатами не существует или все теги не обработаны,
-        # создаем или дополняем файл результатов
-        if not os.path.exists(output_file) or not progress:
-            with open(output_file, 'a', encoding='utf-8') as f:
-                f.write(f"АДРЕСА ARKHAM\nВремя запуска: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write("Формат: адрес - имя - теги\n")
-                f.write("-"*80 + "\n")
         
         # Читаем файл с тегами
         with open(tags_file, 'r', encoding='utf-8') as f:
@@ -354,15 +365,7 @@ def main():
                     
                     logging.info(f"Тег {tag_name} ({tag_link}) обработан и сохранен в прогрессе.")
         
-        # Добавляем статистику в конец файла
-        with open(output_file, 'a', encoding='utf-8') as f:
-            f.write("\n\n" + "="*80 + "\n")
-            f.write(f"ИТОГИ:\n")
-            f.write(f"Всего обработано тегов: {total_tags}\n")
-            f.write(f"Всего найдено адресов: {total_addresses}\n")
-            f.write(f"Время завершения: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        
-        logging.info(f"\n✅ Обработка завершена. Результаты сохранены в файл: {output_file}")
+        logging.info(f"\n✅ Обработка завершена.")
         logging.info(f"Всего обработано тегов в этом запуске: {total_tags}")
         logging.info(f"Всего найдено адресов в этом запуске: {total_addresses}")
         logging.info(f"Всего обработано тегов: {sum(1 for tag in all_tags if progress.get(tag, False))}")

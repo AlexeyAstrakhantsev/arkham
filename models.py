@@ -116,183 +116,124 @@ class ArkhamRepository:
         """Инициализирует репозиторий с экземпляром базы данных."""
         self.db = db
     
-    def save_address(self, address_data: Dict[str, Any]) -> Optional[int]:
-        """Сохраняет адрес и связанные с ним теги в базу данных.
-        Возвращает id адреса, если он был успешно создан, и None если адрес уже существует."""
+    def save_address(self, address, chain, entity_name, entity_type):
+        """
+        Сохраняет адрес в базе данных.
+        
+        Args:
+            address (str): Адрес кошелька
+            chain (str): Название цепочки
+            entity_name (str): Название сущности
+            entity_type (str): Тип сущности
+            
+        Returns:
+            int или None: ID адреса, если он был создан или обновлен,
+                         None, если адрес уже существовал без изменений
+        """
         try:
-            address = address_data['address']
-            chain = address_data['chain']
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
             
-            # Проверяем, существует ли адрес
-            check_query = """
-            SELECT id FROM addresses WHERE address = %s AND chain = %s
-            """
-            address_id = self.db.execute_query(
-                check_query, 
-                (address, chain), 
-                fetch_one=True
+            # Проверяем, существует ли уже адрес
+            cursor.execute(
+                "SELECT id, entity_name, entity_type FROM addresses WHERE address = %s",
+                (address,)
             )
+            existing = cursor.fetchone()
             
-            if address_id:
-                address_id = address_id[0]
-                # Адрес уже существует, логируем это и обновляем
-                logging.info(f"Адрес {address} (chain: {chain}) уже существует в БД")
+            if existing:
+                # Проверяем, нужно ли обновлять информацию
+                existing_id, existing_name, existing_type = existing
                 
-                # Обновляем существующий адрес
-                update_query = """
-                UPDATE addresses 
-                SET name = %s, entity_type = %s, updated_at = NOW()
-                WHERE id = %s
-                """
-                self.db.execute_query(
-                    update_query, 
-                    (address_data['name'], address_data['entity_type'], address_id)
-                )
-                
-                # Сохраняем теги для адреса, если они есть
-                if 'tags' in address_data and address_data['tags']:
-                    for tag_data in address_data['tags']:
-                        try:
-                            self._save_tag_for_address(address_id, tag_data)
-                        except Exception as e:
-                            logging.error(f"Ошибка при сохранении тега {tag_data.get('tag', '')} для существующего адреса {address}: {str(e)}")
-                
-                # Возвращаем None, чтобы показать, что адрес уже существовал
-                return None
+                if (entity_name and existing_name != entity_name) or (entity_type and existing_type != entity_type):
+                    # Обновляем существующую запись только если есть изменения
+                    cursor.execute(
+                        "UPDATE addresses SET entity_name = %s, entity_type = %s WHERE id = %s",
+                        (entity_name or existing_name, entity_type or existing_type, existing_id)
+                    )
+                    conn.commit()
+                    logging.info(f"Адрес {address} обновлен: {entity_name} ({entity_type})")
+                    return existing_id
+                else:
+                    # Адрес существует и не требует обновления
+                    logging.debug(f"Адрес {address} уже существует в БД, пропускаем")
+                    return None
             else:
-                # Вставляем новый адрес
-                insert_query = """
-                INSERT INTO addresses (address, name, chain, entity_type, created_at, updated_at)
-                VALUES (%s, %s, %s, %s, NOW(), NOW())
-                RETURNING id
-                """
-                try:
-                    result = self.db.execute_query(
-                        insert_query, 
-                        (
-                            address, 
-                            address_data['name'], 
-                            chain, 
-                            address_data['entity_type']
-                        ), 
-                        fetch_one=True
+                # Добавляем новый адрес
+                cursor.execute(
+                    "INSERT INTO addresses (address, chain, entity_name, entity_type) VALUES (%s, %s, %s, %s) RETURNING id",
+                    (address, chain, entity_name, entity_type)
+                )
+                new_id = cursor.fetchone()[0]
+                conn.commit()
+                logging.info(f"Добавлен новый адрес: {address} ({entity_name}, {entity_type})")
+                return new_id
+                
+        except psycopg2.Error as e:
+            logging.error(f"Ошибка при сохранении адреса {address}: {str(e)}")
+            if conn:
+                conn.rollback()
+            raise
+        finally:
+            self.db.return_connection(conn)
+
+    def save_tags(self, address, tags_dict):
+        """
+        Сохраняет теги для адреса.
+        
+        Args:
+            address (str): Адрес кошелька
+            tags_dict (dict): Словарь категорий и тегов в формате {category: [tag1, tag2, ...]}
+        """
+        if not tags_dict:
+            logging.debug(f"Для адреса {address} нет тегов для сохранения")
+            return
+            
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            # Получаем ID адреса
+            cursor.execute("SELECT id FROM addresses WHERE address = %s", (address,))
+            result = cursor.fetchone()
+            
+            if not result:
+                logging.warning(f"Не удалось найти адрес {address} для сохранения тегов")
+                return
+                
+            address_id = result[0]
+            tags_saved = 0
+            
+            # Сохраняем теги для каждой категории
+            for category, tag_links in tags_dict.items():
+                for tag_link in tag_links:
+                    # Проверяем, существует ли уже тег для этого адреса
+                    cursor.execute(
+                        "SELECT id FROM address_tags WHERE address_id = %s AND tag_link = %s",
+                        (address_id, tag_link)
                     )
                     
-                    if result:
-                        address_id = result[0]
-                        logging.info(f"Новый адрес {address} (chain: {chain}) добавлен в БД с ID: {address_id}")
-                        
-                        # Сохраняем теги для адреса
-                        if 'tags' in address_data and address_data['tags']:
-                            for tag_data in address_data['tags']:
-                                try:
-                                    self._save_tag_for_address(address_id, tag_data)
-                                except Exception as e:
-                                    logging.error(f"Ошибка при сохранении тега {tag_data.get('tag', '')} для нового адреса {address}: {str(e)}")
-                        
-                        return address_id
-                    else:
-                        logging.error(f"Не удалось получить ID для нового адреса {address}")
-                        return None
-                except Exception as e:
-                    logging.error(f"Ошибка при добавлении адреса {address} в БД: {str(e)}")
-                    return None
+                    if not cursor.fetchone():
+                        # Добавляем новый тег
+                        cursor.execute(
+                            "INSERT INTO address_tags (address_id, tag_link, category) VALUES (%s, %s, %s)",
+                            (address_id, tag_link, category)
+                        )
+                        tags_saved += 1
             
-        except KeyError as e:
-            logging.error(f"Отсутствует обязательное поле в данных адреса: {str(e)}")
-            return None
-        except Exception as e:
-            logging.error(f"Ошибка при сохранении адреса {address_data.get('address', 'unknown')}: {str(e)}")
-            return None
-    
-    def _save_tag_for_address(self, address_id: int, tag_data: Dict[str, str]):
-        """Сохраняет тег и его связь с адресом."""
-        try:
-            tag_name = tag_data['tag']
-            tag_link = tag_data['link']
-            logging.debug(f"Сохранение тега '{tag_name}' для адреса ID: {address_id}")
+            conn.commit()
             
-            # Проверяем, существует ли тег
-            check_query = """
-            SELECT id FROM tags WHERE link = %s
-            """
-            tag_id = self.db.execute_query(check_query, (tag_link,), fetch_one=True)
-            
-            if not tag_id:
-                # Получаем ID категории
-                category_name = tag_data['category']
-                category_query = """
-                SELECT id FROM tag_categories WHERE name = %s
-                """
-                category_id = self.db.execute_query(category_query, (category_name,), fetch_one=True)
-                
-                if not category_id:
-                    # Если категории нет, создаем ее
-                    logging.debug(f"Создание новой категории: {category_name}")
-                    insert_category_query = """
-                    INSERT INTO tag_categories (name, created_at)
-                    VALUES (%s, NOW())
-                    RETURNING id
-                    """
-                    category_id = self.db.execute_query(insert_category_query, (category_name,), fetch_one=True)[0]
-                    logging.debug(f"Категория {category_name} создана с ID: {category_id}")
-                else:
-                    category_id = category_id[0]
-                    logging.debug(f"Категория {category_name} уже существует с ID: {category_id}")
-                
-                # Вставляем новый тег
-                logging.debug(f"Создание нового тега: {tag_name}")
-                insert_tag_query = """
-                INSERT INTO tags (tag, link, category_id, created_at)
-                VALUES (%s, %s, %s, NOW())
-                RETURNING id
-                """
-                try:
-                    tag_id = self.db.execute_query(
-                        insert_tag_query, 
-                        (tag_name, tag_link, category_id), 
-                        fetch_one=True
-                    )[0]
-                    logging.debug(f"Тег {tag_name} создан с ID: {tag_id}")
-                except Exception as e:
-                    logging.error(f"Ошибка при создании тега {tag_name}: {str(e)}")
-                    raise
+            if tags_saved > 0:
+                logging.info(f"Для адреса {address} сохранено {tags_saved} новых тегов")
             else:
-                tag_id = tag_id[0]
-                logging.debug(f"Тег {tag_name} уже существует с ID: {tag_id}")
-            
-            # Проверяем, существует ли связь адрес-тег
-            check_relation_query = """
-            SELECT id FROM address_tags WHERE address_id = %s AND tag_id = %s
-            """
-            relation = self.db.execute_query(
-                check_relation_query, 
-                (address_id, tag_id), 
-                fetch_one=True
-            )
-            
-            if not relation:
-                # Создаем связь адрес-тег
-                logging.debug(f"Создание связи адрес ID: {address_id} - тег ID: {tag_id}")
-                insert_relation_query = """
-                INSERT INTO address_tags (address_id, tag_id, created_at)
-                VALUES (%s, %s, NOW())
-                """
-                try:
-                    self.db.execute_query(insert_relation_query, (address_id, tag_id))
-                    logging.debug(f"Связь адрес-тег создана")
-                except Exception as e:
-                    logging.error(f"Ошибка при создании связи адрес-тег: {str(e)}")
-                    raise
-            else:
-                logging.debug(f"Связь адрес-тег уже существует")
+                logging.debug(f"Для адреса {address} все теги уже сохранены")
                 
-        except KeyError as e:
-            logging.error(f"Отсутствует обязательное поле в данных тега: {str(e)}")
-            raise
-        except Exception as e:
-            logging.error(f"Ошибка при сохранении тега для адреса {address_id}: {str(e)}")
-            raise
+        except psycopg2.Error as e:
+            logging.error(f"Ошибка при сохранении тегов для адреса {address}: {str(e)}")
+            if conn:
+                conn.rollback()
+        finally:
+            self.db.return_connection(conn)
     
     def save_tag_categories(self, categories_data: Dict[str, List[Dict[str, str]]]):
         """Сохраняет категории тегов из JSON файла."""
