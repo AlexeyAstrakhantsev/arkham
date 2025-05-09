@@ -121,14 +121,28 @@ def process_tag(tag_link: str, output_file: str, repository: ArkhamRepository, t
                 
                 data = response.json()
                 
-                # Логирование структуры ответа для диагностики
-                if 'addresses' not in data:
-                    logging.warning(f"В ответе API отсутствует поле 'addresses'. Структура ответа: {json.dumps(data, indent=2)[:500]}...")
-                    # Проверяем наличие других полей в ответе
-                    available_fields = list(data.keys())
-                    logging.warning(f"Доступные поля в ответе: {available_fields}")
-                    has_more_data = False
-                    break
+                # Логируем краткую информацию об API ответе, включая hasMore параметр
+                address_count = len(data.get('addresses', []))
+                has_more = data.get('hasMore', False)
+                other_keys = [k for k in data.keys() if k not in ('addresses', 'hasMore')]
+                
+                # Логируем основную информацию о полученных данных на уровне INFO
+                logging.info(f"API ответ: тег={tag_link}, страница={page}, адресов={address_count}, hasMore={has_more}, другие ключи={other_keys}")
+                
+                # Проверяем, есть ли повторяющиеся адреса
+                if address_count > 1:
+                    addresses_set = {addr.get('address') for addr in data.get('addresses', [])}
+                    if len(addresses_set) < address_count:
+                        logging.info(f"ВНИМАНИЕ: API вернул {address_count} адресов, но только {len(addresses_set)} уникальных")
+                        # Выводим примеры повторяющихся адресов
+                        duplicate_count = {}
+                        for addr in data.get('addresses', []):
+                            address = addr.get('address')
+                            duplicate_count[address] = duplicate_count.get(address, 0) + 1
+                        
+                        duplicates = [addr for addr, count in duplicate_count.items() if count > 1]
+                        if duplicates:
+                            logging.info(f"Повторяющиеся адреса (первые 5): {duplicates[:5]}")
                 
                 addresses = data.get('addresses', [])
                 
@@ -144,38 +158,62 @@ def process_tag(tag_link: str, output_file: str, repository: ArkhamRepository, t
                     logging.warning(f"Достигнуто большое количество страниц ({page}) с одинаковым количеством адресов. Возможно, API зациклилось. Прерываем обработку тега {tag_link}.")
                     has_more_data = False
                     break
+                
+                # Ограничиваем количество страниц для обработки одного тега
+                max_pages = int(os.getenv("API_MAX_PAGES", "2000"))
+                if page >= max_pages:
+                    logging.warning(f"Достигнуто максимальное количество страниц ({max_pages}) для тега {tag_link}. Прерываем обработку.")
+                    has_more_data = False
+                    break
                     
                 # Добавляем адреса в файл и базу данных
-                with open(output_file, 'a', encoding='utf-8') as f:
-                    f.write(f"\n-- Страница {page} --\n")
-                    for addr in addresses:
-                        address = addr.get('address', 'N/A')
-                        chain = addr.get('chain', 'unknown')
-                        entity = addr.get('arkhamEntity', {})
-                        name = entity.get('name', 'N/A')
-                        entity_type = entity.get('type', '')
+                try:
+                    with open(output_file, 'a', encoding='utf-8') as f:
+                        f.write(f"\n-- Страница {page} --\n")
                         
-                        # Извлекаем и форматируем теги для вывода в файл
-                        tags_str = format_tags_from_array(addr.get('populatedTags', []))
+                        # Счетчик для сохраненных адресов
+                        saved_addresses = 0
+                        duplicate_addresses = 0
                         
-                        # Извлекаем теги для сохранения в БД
-                        tags = extract_tags(addr.get('populatedTags', []), tag_categories)
+                        for addr in addresses:
+                            address = addr.get('address', 'N/A')
+                            chain = addr.get('chain', 'unknown')
+                            entity = addr.get('arkhamEntity', {})
+                            name = entity.get('name', 'N/A')
+                            entity_type = entity.get('type', '')
+                            
+                            # Извлекаем и форматируем теги для вывода в файл
+                            tags_str = format_tags_from_array(addr.get('populatedTags', []))
+                            
+                            # Извлекаем теги для сохранения в БД
+                            tags = extract_tags(addr.get('populatedTags', []), tag_categories)
+                            
+                            # Записываем в файл
+                            f.write(f"{address} - {name} - {tags_str}\n")
+                            
+                            # Сохраняем в БД
+                            address_data = {
+                                'address': address,
+                                'name': name,
+                                'chain': chain,
+                                'entity_type': entity_type,
+                                'tags': tags
+                            }
+                            
+                            try:
+                                address_id = repository.save_address(address_data)
+                                if address_id:
+                                    saved_addresses += 1
+                                else:
+                                    duplicate_addresses += 1
+                            except Exception as e:
+                                logging.error(f"Ошибка при сохранении адреса {address} в БД: {str(e)}")
                         
-                        # Записываем в файл
-                        f.write(f"{address} - {name} - {tags_str}\n")
-                        
-                        # Сохраняем в БД
-                        address_data = {
-                            'address': address,
-                            'name': name,
-                            'chain': chain,
-                            'entity_type': entity_type,
-                            'tags': tags
-                        }
-                        try:
-                            repository.save_address(address_data)
-                        except Exception as e:
-                            logging.error(f"Ошибка при сохранении адреса {address} в БД: {str(e)}")
+                        # Логируем результаты сохранения адресов
+                        logging.info(f"Страница {page}: сохранено новых адресов: {saved_addresses}, уже существующих: {duplicate_addresses}")
+                    
+                except Exception as e:
+                    logging.error(f"Ошибка при сохранении адресов: {str(e)}")
                 
                 total_addresses += len(addresses)
                 logging.info(f"Обработано {len(addresses)} адресов для тега {tag_link}, страница {page}")

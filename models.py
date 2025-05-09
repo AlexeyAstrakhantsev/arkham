@@ -117,11 +117,11 @@ class ArkhamRepository:
         self.db = db
     
     def save_address(self, address_data: Dict[str, Any]) -> Optional[int]:
-        """Сохраняет адрес и связанные с ним теги в базу данных."""
+        """Сохраняет адрес и связанные с ним теги в базу данных.
+        Возвращает id адреса, если он был успешно создан, и None если адрес уже существует."""
         try:
             address = address_data['address']
             chain = address_data['chain']
-            logging.debug(f"Попытка сохранения адреса: {address} (chain: {chain})")
             
             # Проверяем, существует ли адрес
             check_query = """
@@ -135,7 +135,8 @@ class ArkhamRepository:
             
             if address_id:
                 address_id = address_id[0]
-                logging.debug(f"Адрес {address} уже существует в БД с ID: {address_id}")
+                # Адрес уже существует, логируем это и обновляем
+                logging.info(f"Адрес {address} (chain: {chain}) уже существует в БД")
                 
                 # Обновляем существующий адрес
                 update_query = """
@@ -147,7 +148,17 @@ class ArkhamRepository:
                     update_query, 
                     (address_data['name'], address_data['entity_type'], address_id)
                 )
-                logging.debug(f"Адрес {address} обновлен")
+                
+                # Сохраняем теги для адреса, если они есть
+                if 'tags' in address_data and address_data['tags']:
+                    for tag_data in address_data['tags']:
+                        try:
+                            self._save_tag_for_address(address_id, tag_data)
+                        except Exception as e:
+                            logging.error(f"Ошибка при сохранении тега {tag_data.get('tag', '')} для существующего адреса {address}: {str(e)}")
+                
+                # Возвращаем None, чтобы показать, что адрес уже существовал
+                return None
             else:
                 # Вставляем новый адрес
                 insert_query = """
@@ -156,7 +167,7 @@ class ArkhamRepository:
                 RETURNING id
                 """
                 try:
-                    address_id = self.db.execute_query(
+                    result = self.db.execute_query(
                         insert_query, 
                         (
                             address, 
@@ -167,30 +178,25 @@ class ArkhamRepository:
                         fetch_one=True
                     )
                     
-                    if address_id:
-                        address_id = address_id[0]
-                        logging.debug(f"Адрес {address} добавлен в БД с ID: {address_id}")
+                    if result:
+                        address_id = result[0]
+                        logging.info(f"Новый адрес {address} (chain: {chain}) добавлен в БД с ID: {address_id}")
+                        
+                        # Сохраняем теги для адреса
+                        if 'tags' in address_data and address_data['tags']:
+                            for tag_data in address_data['tags']:
+                                try:
+                                    self._save_tag_for_address(address_id, tag_data)
+                                except Exception as e:
+                                    logging.error(f"Ошибка при сохранении тега {tag_data.get('tag', '')} для нового адреса {address}: {str(e)}")
+                        
+                        return address_id
                     else:
                         logging.error(f"Не удалось получить ID для нового адреса {address}")
                         return None
                 except Exception as e:
                     logging.error(f"Ошибка при добавлении адреса {address} в БД: {str(e)}")
                     return None
-            
-            # Сохраняем теги для адреса
-            if 'tags' in address_data and address_data['tags']:
-                tags_count = len(address_data['tags'])
-                saved_tags = 0
-                for tag_data in address_data['tags']:
-                    try:
-                        self._save_tag_for_address(address_id, tag_data)
-                        saved_tags += 1
-                    except Exception as e:
-                        logging.error(f"Ошибка при сохранении тега {tag_data.get('tag', '')} для адреса {address}: {str(e)}")
-                
-                logging.debug(f"Сохранено {saved_tags}/{tags_count} тегов для адреса {address}")
-            
-            return address_id
             
         except KeyError as e:
             logging.error(f"Отсутствует обязательное поле в данных адреса: {str(e)}")
