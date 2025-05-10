@@ -151,7 +151,7 @@ def get_arkham_tag_data(tag_link, page):
     
     return {}, False
 
-def process_tag(tag_link, output_file, repository, tag_categories):
+def process_tag(tag_link, output_file, repository, tag_categories, tags_data):
     """
     Обрабатывает конкретный тег, загружая адреса по нему из API Arkham Intel
     и сохраняя их в базу данных.
@@ -161,6 +161,7 @@ def process_tag(tag_link, output_file, repository, tag_categories):
         output_file (str): Имя файла для вывода результатов (не используется).
         repository (ArkhamRepository): Репозиторий для сохранения данных.
         tag_categories (dict): Словарь маппинга ссылок тегов к их категориям.
+        tags_data (dict): Исходные данные с тегами.
     
     Returns:
         int: Количество найденных адресов.
@@ -249,9 +250,19 @@ def process_tag(tag_link, output_file, repository, tag_categories):
             if tag_categories.get(tag_link):
                 category = tag_categories[tag_link]
                 # Используем новый формат тегов
+                # Получаем имя тега из тега по умолчанию
+                current_tag_name = tag_link  # По умолчанию используем сам link как имя тега
+                
+                # Попробуем найти правильное имя тега в исходных данных
+                for tag_type, tags_list in tags_data.items():
+                    for tag_obj in tags_list:
+                        if tag_obj.get('link') == tag_link:
+                            current_tag_name = tag_obj.get('name', tag_link)
+                            break
+                
                 tags[category] = [{
-                    'id': tag_link,      # link
-                    'name': tag_name     # tag name
+                    'id': tag_link,           # link
+                    'name': current_tag_name  # имя тега
                 }]
             
             # Получаем дополнительные теги из API
@@ -407,7 +418,7 @@ def main():
                     logging.info(f"\nОбрабатываем тег: {tag_name} ({tag_link})")
                     
                     try:
-                        addresses_count = process_tag(tag_link, output_file, repository, tag_categories)
+                        addresses_count = process_tag(tag_link, output_file, repository, tag_categories, tags_data)
                         total_tags += 1
                         total_addresses += addresses_count
                         

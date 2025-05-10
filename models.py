@@ -126,10 +126,24 @@ class Database:
             return "Пул соединений не инициализирован"
             
         try:
-            used = len(self.pool._used)
-            free = len(self.pool._unused)
+            # Исправление: предохранимся от ошибок получения атрибутов
+            # Разные версии psycopg2 могут использовать разные названия атрибутов
+            if hasattr(self.pool, '_used'):
+                used = len(self.pool._used)
+            else:
+                used = 0
+                
+            if hasattr(self.pool, '_unused'):
+                free = len(self.pool._unused)
+            else:
+                # Альтернативный вариант, может использоваться в некоторых версиях psycopg2
+                if hasattr(self.pool, '_pool'):
+                    free = len(self.pool._pool)
+                else:
+                    free = 0
+                    
             total = used + free
-            max_conn = self.pool._maxconn
+            max_conn = self.pool._maxconn if hasattr(self.pool, '_maxconn') else "N/A"
             status = f"Пул соединений: {used} используется, {free} свободно, {total} всего, максимум {max_conn}"
             logging.info(status)
             return status
