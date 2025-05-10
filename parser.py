@@ -122,6 +122,14 @@ def get_arkham_tag_data(tag_link, page):
             
             data = response.json()
             
+            # Проверка на пустой ответ
+            if 'addresses' not in data:
+                logging.warning(f"Ответ API не содержит ключ 'addresses'. Ключи: {list(data.keys())}")
+                if retry < max_retries - 1:
+                    logging.warning(f"Повторная попытка {retry+1}/{max_retries} через {retry_delay} сек...")
+                    time.sleep(retry_delay)
+                    continue
+            
             # Небольшая пауза между запросами из переменной окружения
             sleep_time = float(os.getenv("API_REQUEST_DELAY", "1.0"))
             time.sleep(sleep_time)
@@ -166,18 +174,14 @@ def process_tag(tag_link, output_file, repository, tag_categories, tags_data):
     Returns:
         int: Количество найденных адресов.
     """
-    page = 0
+    max_pages = 10  # Всегда запрашиваем только 10 страниц
     total_addresses = 0
-    previous_addresses_count = 0
-    count_same_addresses = 0
-    max_pages = int(os.getenv("API_MAX_PAGES", "2000"))
     
     # Список для подсчета уникальных адресов
     all_addresses = set()
     
-    while True:
-        page += 1
-        logging.info(f"Обработка страницы {page} для тега {tag_link}")
+    for page in range(1, max_pages + 1):
+        logging.info(f"Обработка страницы {page} из {max_pages} для тега {tag_link}")
         
         # Получаем JSON с данными
         response, is_success = get_arkham_tag_data(tag_link, page)
@@ -186,52 +190,23 @@ def process_tag(tag_link, output_file, repository, tag_categories, tags_data):
             logging.error(f"Не удалось получить данные для тега {tag_link} на странице {page}")
             break
         
-        # Получаем и проверяем наличие адресов в ответе
+        # Получаем адреса в ответе
         address_data = response.get('addresses', [])
-        has_more = response.get('hasMore', False)
         
         # Логирование структуры API ответа
-        logging.info(f"API ответ: получено {len(address_data)} адресов, hasMore={has_more}")
+        logging.info(f"API ответ: получено {len(address_data)} адресов на странице {page}")
         if len(address_data) == 0:
             logging.info(f"Ключи в ответе API: {list(response.keys())}")
+            break  # Если пустой ответ, прерываем обработку
         else:
             logging.info(f"Первый адрес: {address_data[0] if address_data else 'нет'}")
-            
+        
         # Проверяем на уникальность адресов
         current_addresses = set(addr.get('address') for addr in address_data if addr.get('address'))
         new_unique_addresses = current_addresses - all_addresses
         
-        if len(current_addresses) > 0 and len(new_unique_addresses) < len(current_addresses):
-            logging.warning(f"Найдены дубликаты адресов на странице {page}: "
-                           f"{len(current_addresses) - len(new_unique_addresses)} дубликатов")
-        
+        logging.info(f"Найдено {len(new_unique_addresses)} новых уникальных адресов из {len(current_addresses)} на странице {page}")
         all_addresses.update(current_addresses)
-        
-        # Проверка на зацикливание API: если возвращается то же количество адресов и мы на большой странице
-        if len(address_data) == previous_addresses_count and page > 1:
-            count_same_addresses += 1
-            if count_same_addresses > 10:
-                logging.warning(f"API возвращает одинаковое количество адресов ({len(address_data)}) "
-                               f"на {count_same_addresses} страницах подряд. Возможно зацикливание.")
-                if page > 1000:  # Если мы на большой странице, вероятно, это зацикливание
-                    logging.warning(f"Достигнут порог подозрения на зацикливание API на странице {page}. "
-                                   f"Останавливаем обработку этого тега.")
-                    break
-        else:
-            count_same_addresses = 0
-        
-        previous_addresses_count = len(address_data)
-        
-        # Если достигнут предел страниц, останавливаем обработку
-        if page >= max_pages:
-            logging.warning(f"Достигнут максимальный предел страниц ({max_pages}) для тега {tag_link}. "
-                           f"Останавливаем обработку этого тега.")
-            break
-        
-        # Если список адресов пуст, прекращаем обработку
-        if not address_data:
-            logging.info(f"Нет больше адресов для тега {tag_link}")
-            break
         
         new_addresses = 0
         existing_addresses = 0
@@ -331,11 +306,6 @@ def process_tag(tag_link, output_file, repository, tag_categories, tags_data):
                     logging.error(f"Ошибка при сохранении адреса {addr}: {str(e)}")
         
         logging.info(f"Страница {page}: сохранено {new_addresses} новых и {existing_addresses} существующих адресов")
-        
-        # Если нет больше страниц, прекращаем обработку
-        if not has_more:
-            logging.info(f"Больше нет страниц для тега {tag_link}")
-            break
     
     logging.info(f"Обработка тега {tag_link} завершена. Всего адресов: {total_addresses}")
     return total_addresses
