@@ -222,6 +222,12 @@ def process_tag(tag_link, output_file, repository, tag_categories, tags_data):
             entity_name = addr_data.get('entityName') or addr_data.get('entity', {}).get('name', '')
             entity_type = addr_data.get('entityType') or addr_data.get('entity', {}).get('type', '')
             
+            # Если имя пустое, пытаемся взять его из arkhamLabel
+            if not entity_name:
+                arkham_label = addr_data.get('arkhamLabel', {})
+                entity_name = arkham_label.get('name', '')
+                logging.debug(f"Имя взято из arkhamLabel: {entity_name}")
+            
             # Получаем теги для адреса
             tags = {}
             
