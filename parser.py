@@ -300,29 +300,13 @@ def process_tag(tag_link, output_file, repository, tag_categories):
 def main():
     # Пути к файлам из переменных окружения
     tags_file = os.getenv("TAGS_FILE", "data/full_tags_by_type.json")
-    output_file = os.getenv("OUTPUT_FILE", "data/arkham_addresses.txt")  # Оставляем для совместимости
-    progress_file = os.getenv("PROGRESS_FILE", "data/arkham_progress.json")
+    output_file = os.getenv("OUTPUT_FILE", "data/output.txt")
+    progress_file = os.getenv("PROGRESS_FILE", "data/progress.json")
     
-    # Логирование путей к файлам
-    logging.info(f"Путь к файлу тегов: {tags_file}")
-    logging.info(f"Путь к файлу прогресса: {progress_file}")
-    
-    # Проверка наличия файла с тегами
-    if os.path.exists(tags_file):
-        logging.info(f"Файл тегов найден: {tags_file}")
-    else:
-        logging.error(f"Файл тегов не найден: {tags_file}")
-        # Выводим список файлов в директории data
-        data_dir = os.path.dirname(tags_file)
-        if os.path.exists(data_dir):
-            files = os.listdir(data_dir)
-            logging.info(f"Содержимое директории {data_dir}: {files}")
-        else:
-            logging.error(f"Директория {data_dir} не существует")
-            return
-    
-    # Убедимся, что директории для файлов существуют
-    os.makedirs(os.path.dirname(progress_file) if os.path.dirname(progress_file) else ".", exist_ok=True)
+    # Создаем директории для файлов, если они не существуют
+    os.makedirs(os.path.dirname(tags_file), exist_ok=True)
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+    os.makedirs(os.path.dirname(progress_file), exist_ok=True)
     
     try:
         # Инициализируем БД
@@ -331,6 +315,9 @@ def main():
         # Создаем подключение к БД
         db = Database()
         repository = ArkhamRepository(db)
+        
+        # Выводим статус пула соединений
+        db.get_pool_status()
         
         # Загружаем прогресс
         progress = load_progress(progress_file)
@@ -363,6 +350,9 @@ def main():
         logging.info(f"Уже обработано: {tags_completed}")
         logging.info(f"Осталось обработать: {tags_remaining}")
         
+        # Счетчик операций для периодического вывода статуса пула
+        operation_count = 0
+        
         # Обрабатываем каждый тип тегов
         for tag_type, tags in tags_data.items():
             logging.info(f"\nОбработка типа тегов: {tag_type}")
@@ -377,21 +367,37 @@ def main():
                         logging.info(f"Тег {tag_name} ({tag_link}) уже обработан, пропускаем.")
                         continue
                     
+                    # Периодически проверяем статус пула соединений
+                    operation_count += 1
+                    if operation_count % 10 == 0:  # Каждые 10 операций
+                        db.get_pool_status()
+                    
                     logging.info(f"\nОбрабатываем тег: {tag_name} ({tag_link})")
-                    addresses_count = process_tag(tag_link, output_file, repository, tag_categories)
-                    total_tags += 1
-                    total_addresses += addresses_count
                     
-                    # Отмечаем тег как обработанный и сохраняем прогресс
-                    progress[tag_link] = True
-                    save_progress(progress_file, progress)
-                    
-                    logging.info(f"Тег {tag_name} ({tag_link}) обработан и сохранен в прогрессе.")
+                    try:
+                        addresses_count = process_tag(tag_link, output_file, repository, tag_categories)
+                        total_tags += 1
+                        total_addresses += addresses_count
+                        
+                        # Отмечаем тег как обработанный и сохраняем прогресс
+                        progress[tag_link] = True
+                        save_progress(progress_file, progress)
+                        
+                        logging.info(f"Тег {tag_name} ({tag_link}) обработан и сохранен в прогрессе.")
+                    except Exception as e:
+                        logging.error(f"Ошибка при обработке тега {tag_name} ({tag_link}): {str(e)}")
+                        # При ошибке проверяем состояние пула и пытаемся восстановить его
+                        db.get_pool_status()
+                        # Сохраняем прогресс на случай падения
+                        save_progress(progress_file, progress)
         
         logging.info(f"\n✅ Обработка завершена.")
         logging.info(f"Всего обработано тегов в этом запуске: {total_tags}")
         logging.info(f"Всего найдено адресов в этом запуске: {total_addresses}")
         logging.info(f"Всего обработано тегов: {sum(1 for tag in all_tags if progress.get(tag, False))}")
+        
+        # Закрываем подключение к базе данных
+        db.close()
         
     except Exception as e:
         logging.error(f"❌ Ошибка: {str(e)}")

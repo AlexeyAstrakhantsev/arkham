@@ -32,8 +32,8 @@ class Database:
         }
         
         # Минимальное и максимальное количество соединений в пуле
-        min_connections = int(os.getenv("DB_MIN_CONNECTIONS", "1"))
-        max_connections = int(os.getenv("DB_MAX_CONNECTIONS", "10"))
+        min_connections = int(os.getenv("DB_MIN_CONNECTIONS", "5"))
+        max_connections = int(os.getenv("DB_MAX_CONNECTIONS", "20"))
         
         # Создаем пул соединений
         self.pool = psycopg2.pool.SimpleConnectionPool(
@@ -41,15 +41,33 @@ class Database:
             max_connections,
             **self.config
         )
-        logging.info(f"Создан пул соединений к базе данных на {self.config['host']}:{self.config['port']}")
+        logging.info(f"Создан пул соединений к базе данных на {self.config['host']}:{self.config['port']} (мин: {min_connections}, макс: {max_connections})")
     
     def get_connection(self):
         """Получает соединение из пула."""
-        return self.pool.getconn()
+        try:
+            conn = self.pool.getconn()
+            if conn:
+                return conn
+            else:
+                logging.error("Не удалось получить соединение из пула (получен None)")
+                raise Exception("Не удалось получить соединение из пула")
+        except Exception as e:
+            logging.error(f"Ошибка при получении соединения из пула: {str(e)}")
+            raise
     
     def release_connection(self, conn):
         """Возвращает соединение в пул."""
-        self.pool.putconn(conn)
+        try:
+            self.pool.putconn(conn)
+        except Exception as e:
+            logging.error(f"Ошибка при возврате соединения в пул: {str(e)}")
+            # В случае ошибки возврата соединения, пытаемся его закрыть
+            try:
+                conn.close()
+                logging.warning("Соединение закрыто вместо возврата в пул")
+            except:
+                logging.error("Не удалось закрыть соединение")
     
     def execute_query(self, query, params=None, fetch=False, fetch_one=False):
         """Выполняет SQL запрос с возможностью получения результатов."""
@@ -102,11 +120,31 @@ class Database:
             if conn:
                 self.release_connection(conn)
     
+    def get_pool_status(self):
+        """Возвращает статус пула соединений."""
+        if not hasattr(self, 'pool') or not self.pool:
+            return "Пул соединений не инициализирован"
+            
+        try:
+            used = len(self.pool._used)
+            free = len(self.pool._unused)
+            total = used + free
+            max_conn = self.pool._maxconn
+            status = f"Пул соединений: {used} используется, {free} свободно, {total} всего, максимум {max_conn}"
+            logging.info(status)
+            return status
+        except Exception as e:
+            logging.error(f"Ошибка при получении статуса пула: {str(e)}")
+            return f"Ошибка получения статуса пула: {str(e)}"
+    
     def close(self):
         """Закрывает все соединения в пуле."""
         if hasattr(self, 'pool') and self.pool:
-            self.pool.closeall()
-            logging.info("Пул соединений закрыт")
+            try:
+                self.pool.closeall()
+                logging.info("Пул соединений закрыт")
+            except Exception as e:
+                logging.error(f"Ошибка при закрытии пула соединений: {str(e)}")
 
 
 class ArkhamRepository:
@@ -175,7 +213,8 @@ class ArkhamRepository:
                 conn.rollback()
             raise
         finally:
-            self.db.return_connection(conn)
+            if conn:
+                self.db.release_connection(conn)
 
     def save_tags(self, address, tags_dict):
         """
@@ -263,7 +302,8 @@ class ArkhamRepository:
             if conn:
                 conn.rollback()
         finally:
-            self.db.return_connection(conn)
+            if conn:
+                self.db.release_connection(conn)
     
     def save_tag_categories(self, categories_data: Dict[str, List[Dict[str, str]]]):
         """Сохраняет категории тегов из JSON файла."""
