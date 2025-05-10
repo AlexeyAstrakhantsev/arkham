@@ -303,7 +303,7 @@ class ArkhamRepository:
             raise
 
 
-def init_database(db_host, db_port, db_user, db_password, db_name, min_conn=1, max_conn=10):
+def init_database(db_host, db_port, db_user, db_password, db_name):
     """
     Инициализирует соединение с базой данных и создает необходимые таблицы если их нет.
     
@@ -313,8 +313,6 @@ def init_database(db_host, db_port, db_user, db_password, db_name, min_conn=1, m
         db_user (str): Имя пользователя.
         db_password (str): Пароль пользователя.
         db_name (str): Имя базы данных.
-        min_conn (int): Минимальное количество соединений в пуле.
-        max_conn (int): Максимальное количество соединений в пуле.
         
     Returns:
         Database: Объект для работы с базой данных.
@@ -331,9 +329,7 @@ def init_database(db_host, db_port, db_user, db_password, db_name, min_conn=1, m
                 port=db_port,
                 user=db_user,
                 password=db_password,
-                dbname=db_name,
-                min_conn=min_conn,
-                max_conn=max_conn
+                dbname=db_name
             )
             
             # Создаем нужные таблицы, если их нет
