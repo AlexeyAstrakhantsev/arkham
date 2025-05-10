@@ -281,14 +281,14 @@ class ArkhamRepository:
                     if tag_name and tag_link:
                         # Проверяем существование тега
                         check_tag_query = """
-                        SELECT id FROM tags WHERE link = %s
+                        SELECT id FROM tags WHERE tag_id = %s
                         """
                         tag_id = self.db.execute_query(check_tag_query, (tag_link,), fetch_one=True)
                         
                         if not tag_id:
                             # Создаем новый тег
                             insert_tag_query = """
-                            INSERT INTO tags (tag, link, category_id, created_at)
+                            INSERT INTO tags (name, tag_id, category_id, created_at)
                             VALUES (%s, %s, %s, NOW())
                             """
                             self.db.execute_query(insert_tag_query, (tag_name, tag_link, category_id))
