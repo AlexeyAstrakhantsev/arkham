@@ -7,6 +7,7 @@ from datetime import datetime
 import os
 from models import Database, ArkhamRepository, init_database
 from dotenv import load_dotenv
+import traceback
 
 # Загружаем переменные окружения из .env файла
 load_dotenv()
@@ -298,6 +299,18 @@ def process_tag(tag_link, output_file, repository, tag_categories, tags_data):
                     # Сохраняем теги для адреса (в любом случае, даже если адрес уже существовал)
                     repository.save_tags(addr, tags)
                     
+                    # Форматируем теги для вывода в лог
+                    tags_str = ""
+                    for category, tag_list in tags.items():
+                        for tag_item in tag_list:
+                            tag_name = tag_item.get('name') or tag_item.get('id', '')
+                            tags_str += f"{tag_name}, "
+                    tags_str = tags_str[:-2] if tags_str else "Нет тегов"
+                    
+                    # Выводим подробный лог для каждого адреса
+                    status = "Добавлен" if result is not None else "Обновлен"
+                    logging.info(f"{status} адрес: {addr} Имя: {entity_name or 'Нет имени'} Тэги: {tags_str}")
+                    
                     if result is not None:
                         new_addresses += 1
                     else:
@@ -310,110 +323,159 @@ def process_tag(tag_link, output_file, repository, tag_categories, tags_data):
     logging.info(f"Обработка тега {tag_link} завершена. Всего адресов: {total_addresses}")
     return total_addresses
 
+def load_tags_json(file_path):
+    """
+    Загружает JSON файл с тегами.
+    
+    Args:
+        file_path (str): Путь к файлу с тегами.
+        
+    Returns:
+        dict: Словарь с данными тегов.
+    """
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception as e:
+        logging.error(f"Ошибка при загрузке файла с тегами {file_path}: {str(e)}")
+        raise
+
+def extract_tag_links(tags_data):
+    """
+    Извлекает все ссылки на теги из данных тегов.
+    
+    Args:
+        tags_data (dict): Словарь с данными тегов.
+        
+    Returns:
+        list: Список ссылок на теги.
+    """
+    tag_links = []
+    for tag_type, tags in tags_data.items():
+        for tag in tags:
+            tag_link = tag.get('link')
+            if tag_link:
+                tag_links.append(tag_link)
+    return tag_links
+
+def create_tag_categories_mapping(tags_data):
+    """
+    Создает отображение ссылок тегов к их категориям.
+    
+    Args:
+        tags_data (dict): Словарь с данными тегов.
+        
+    Returns:
+        dict: Словарь вида {tag_link: category}.
+    """
+    tag_categories = {}
+    for category, tags in tags_data.items():
+        for tag in tags:
+            tag_link = tag.get('link')
+            if tag_link:
+                tag_categories[tag_link] = category
+    return tag_categories
+
 def main():
-    # Пути к файлам из переменных окружения
+    """
+    Основная функция для запуска парсера.
+    
+    Инициализирует базу данных, загружает файл с тегами,
+    и начинает обработку тегов.
+    """
+    # Загружаем настройки из переменных окружения
     tags_file = os.getenv("TAGS_FILE", "data/full_tags_by_type.json")
     output_file = os.getenv("OUTPUT_FILE", "data/output.txt")
     progress_file = os.getenv("PROGRESS_FILE", "data/progress.json")
     
-    # Создаем директории для файлов, если они не существуют
+    # Создаем директории для хранения данных, если их нет
     os.makedirs(os.path.dirname(tags_file), exist_ok=True)
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
     os.makedirs(os.path.dirname(progress_file), exist_ok=True)
     
+    # Проверяем наличие файла тегов
+    if not os.path.exists(tags_file):
+        logging.error(f"Файл с тегами не найден: {tags_file}")
+        logging.info("Попытка загрузить теги с API...")
+        # Здесь можно добавить код для загрузки тегов с API, если потребуется
+        return
+    
+    # Инициализируем базу данных
     try:
-        # Инициализируем БД
-        init_database()
+        # Получаем параметры подключения из переменных окружения
+        db_host = os.getenv("DB_HOST", "localhost")
+        db_port = int(os.getenv("DB_PORT", "5432"))
+        db_name = os.getenv("DB_NAME", "arkham_db")
+        db_user = os.getenv("DB_USER", "postgres")
+        db_password = os.getenv("DB_PASSWORD", "postgres")
+        db_min_conn = int(os.getenv("DB_MIN_CONNECTIONS", "5"))
+        db_max_conn = int(os.getenv("DB_MAX_CONNECTIONS", "20"))
         
-        # Создаем подключение к БД
-        db = Database()
+        # Инициализируем соединение с базой данных
+        db = init_database(
+            db_host=db_host,
+            db_port=db_port,
+            db_user=db_user,
+            db_password=db_password,
+            db_name=db_name,
+            min_conn=db_min_conn,
+            max_conn=db_max_conn
+        )
+        
+        # Создаем репозиторий для работы с данными
         repository = ArkhamRepository(db)
         
-        # Выводим статус пула соединений
-        db.get_pool_status()
+        # Загружаем данные тегов
+        tags_data = load_tags_json(tags_file)
         
-        # Загружаем прогресс
-        progress = load_progress(progress_file)
+        # Создаем маппинг тегов к категориям
+        tag_categories = create_tag_categories_mapping(tags_data)
         
-        # Читаем файл с тегами
-        with open(tags_file, 'r', encoding='utf-8') as f:
-            tags_data = json.load(f)
-        
-        # Сохраняем категории тегов в БД
+        # Сохраняем категории тегов в базу данных
         repository.save_tag_categories(tags_data)
         
-        # Создаем маппинг link -> category для тегов
-        tag_categories = create_tag_categories_map(tags_data)
+        # Получаем список ссылок на теги для обработки
+        tag_links = extract_tag_links(tags_data)
+        logging.info(f"Загружено {len(tag_links)} ссылок на теги для обработки")
         
-        total_tags = 0
-        total_addresses = 0
+        # Загружаем прогресс обработки, если он есть
+        progress = load_progress(progress_file)
         
-        # Получаем общее количество тегов для статистики
-        all_tags = []
-        for tag_type, tags in tags_data.items():
-            for tag in tags:
-                tag_link = tag.get('link')
-                if tag_link:
-                    all_tags.append(tag_link)
+        # Фильтруем теги, исключая уже обработанные
+        if progress and not progress.get("reset", False):
+            completed_tags = progress.get("completed_tags", [])
+            pending_tags = [tag for tag in tag_links if tag not in completed_tags]
+            logging.info(f"Найдено {len(completed_tags)} уже обработанных тегов. Осталось обработать: {len(pending_tags)}")
+            tag_links = pending_tags
         
-        # Выводим статистику по прогрессу
-        tags_completed = sum(1 for tag in all_tags if progress.get(tag, False))
-        tags_remaining = len(all_tags) - tags_completed
-        logging.info(f"Всего тегов: {len(all_tags)}")
-        logging.info(f"Уже обработано: {tags_completed}")
-        logging.info(f"Осталось обработать: {tags_remaining}")
+        # Информация о начале обработки
+        logging.info(f"Начинаем обработку {len(tag_links)} тегов...")
         
-        # Счетчик операций для периодического вывода статуса пула
-        operation_count = 0
-        
-        # Обрабатываем каждый тип тегов
-        for tag_type, tags in tags_data.items():
-            logging.info(f"\nОбработка типа тегов: {tag_type}")
-            
-            for tag in tags:
-                tag_link = tag.get('link')
-                tag_name = tag.get('name')
+        # Обрабатываем каждый тег и сохраняем прогресс
+        total_tags = len(tag_links)
+        for index, tag_link in enumerate(tag_links, 1):
+            try:
+                logging.info(f"Обработка тега {index}/{total_tags}: {tag_link}")
+                process_tag(tag_link, output_file, repository, tag_categories, tags_data)
                 
-                if tag_link:
-                    # Проверяем, был ли тег уже обработан
-                    if progress.get(tag_link, False):
-                        logging.info(f"Тег {tag_name} ({tag_link}) уже обработан, пропускаем.")
-                        continue
-                    
-                    # Периодически проверяем статус пула соединений
-                    operation_count += 1
-                    if operation_count % 10 == 0:  # Каждые 10 операций
-                        db.get_pool_status()
-                    
-                    logging.info(f"\nОбрабатываем тег: {tag_name} ({tag_link})")
-                    
-                    try:
-                        addresses_count = process_tag(tag_link, output_file, repository, tag_categories, tags_data)
-                        total_tags += 1
-                        total_addresses += addresses_count
-                        
-                        # Отмечаем тег как обработанный и сохраняем прогресс
-                        progress[tag_link] = True
-                        save_progress(progress_file, progress)
-                        
-                        logging.info(f"Тег {tag_name} ({tag_link}) обработан и сохранен в прогрессе.")
-                    except Exception as e:
-                        logging.error(f"Ошибка при обработке тега {tag_name} ({tag_link}): {str(e)}")
-                        # При ошибке проверяем состояние пула и пытаемся восстановить его
-                        db.get_pool_status()
-                        # Сохраняем прогресс на случай падения
-                        save_progress(progress_file, progress)
+                # Сохраняем прогресс после каждого обработанного тега
+                progress.setdefault("completed_tags", []).append(tag_link)
+                save_progress(progress_file, progress)
+                
+                # Делаем задержку между обработкой тегов
+                delay_seconds = float(os.getenv("API_REQUEST_DELAY", "2.0"))
+                logging.debug(f"Задержка {delay_seconds} секунд перед следующим тегом...")
+                time.sleep(delay_seconds)
+                
+            except Exception as e:
+                logging.error(f"Ошибка при обработке тега {tag_link}: {str(e)}")
+                # Продолжаем обработку остальных тегов
         
-        logging.info(f"\n✅ Обработка завершена.")
-        logging.info(f"Всего обработано тегов в этом запуске: {total_tags}")
-        logging.info(f"Всего найдено адресов в этом запуске: {total_addresses}")
-        logging.info(f"Всего обработано тегов: {sum(1 for tag in all_tags if progress.get(tag, False))}")
-        
-        # Закрываем подключение к базе данных
-        db.close()
+        logging.info("Обработка всех тегов завершена!")
         
     except Exception as e:
-        logging.error(f"❌ Ошибка: {str(e)}")
+        logging.error(f"Критическая ошибка при выполнении программы: {str(e)}")
+        traceback.print_exc()
 
 if __name__ == "__main__":
     main()

@@ -7,6 +7,7 @@ import json
 import os
 from dotenv import load_dotenv
 from typing import Dict, Any, List, Optional
+import time
 
 # Загружаем переменные окружения из .env файла
 load_dotenv()
@@ -21,27 +22,27 @@ logging.basicConfig(
 class Database:
     """Класс для работы с базой данных PostgreSQL с использованием пула соединений."""
     
-    def __init__(self):
+    def __init__(self, host, port, user, password, dbname, min_conn=1, max_conn=10):
         """Инициализирует подключение к базе данных из переменных окружения."""
         self.config = {
-            "host": os.getenv("DB_HOST", "localhost"),
-            "port": os.getenv("DB_PORT", "5432"),
-            "database": os.getenv("DB_NAME", "arkham_db"),
-            "user": os.getenv("DB_USER", "postgres"),
-            "password": os.getenv("DB_PASSWORD", "postgres")
+            "host": host,
+            "port": port,
+            "database": dbname,
+            "user": user,
+            "password": password
         }
         
         # Минимальное и максимальное количество соединений в пуле
-        min_connections = int(os.getenv("DB_MIN_CONNECTIONS", "5"))
-        max_connections = int(os.getenv("DB_MAX_CONNECTIONS", "20"))
+        self.min_connections = min_conn
+        self.max_connections = max_conn
         
         # Создаем пул соединений
         self.pool = psycopg2.pool.SimpleConnectionPool(
-            min_connections,
-            max_connections,
+            self.min_connections,
+            self.max_connections,
             **self.config
         )
-        logging.info(f"Создан пул соединений к базе данных на {self.config['host']}:{self.config['port']} (мин: {min_connections}, макс: {max_connections})")
+        logging.info(f"Создан пул соединений к базе данных на {self.config['host']}:{self.config['port']} (мин: {self.min_connections}, макс: {self.max_connections})")
     
     def get_connection(self):
         """Получает соединение из пула."""
@@ -170,170 +171,145 @@ class ArkhamRepository:
     
     def save_address(self, address, chain, entity_name, entity_type):
         """
-        Сохраняет адрес в базе данных.
+        Сохраняет адрес в базу данных.
         
         Args:
-            address (str): Адрес кошелька
-            chain (str): Название цепочки
-            entity_name (str): Название сущности
-            entity_type (str): Тип сущности
+            address (str): Адрес кошелька.
+            chain (str): Блокчейн (сеть).
+            entity_name (str): Название сущности.
+            entity_type (str): Тип сущности.
             
         Returns:
-            int или None: ID адреса, если он был создан или обновлен,
-                         None, если адрес уже существовал без изменений
+            str: ID добавленного адреса или None, если адрес уже существовал.
         """
         try:
-            conn = self.db.get_connection()
-            cursor = conn.cursor()
-            
-            # Проверяем, существует ли уже адрес
-            cursor.execute(
-                "SELECT id, name, entity_type FROM addresses WHERE address = %s",
-                (address,)
-            )
-            existing = cursor.fetchone()
-            
-            if existing:
-                # Проверяем, нужно ли обновлять информацию
-                existing_id, existing_name, existing_type = existing
+            with self.db.get_connection() as conn:
+                cursor = conn.cursor()
+                # Проверка, существует ли адрес уже
+                cursor.execute(
+                    "SELECT id FROM addresses WHERE address = %s",
+                    (address,)
+                )
+                result = cursor.fetchone()
                 
-                if (entity_name and existing_name != entity_name) or (entity_type and existing_type != entity_type):
-                    # Обновляем существующую запись только если есть изменения
+                if result:
+                    # Если адрес уже существует, обновляем информацию
                     cursor.execute(
-                        "UPDATE addresses SET name = %s, entity_type = %s WHERE id = %s",
-                        (entity_name or existing_name, entity_type or existing_type, existing_id)
+                        """
+                        UPDATE addresses 
+                        SET chain = %s, entity_name = %s, entity_type = %s, updated_at = NOW()
+                        WHERE address = %s
+                        """,
+                        (chain, entity_name, entity_type, address)
                     )
                     conn.commit()
-                    logging.info(f"Адрес {address} обновлен: {entity_name} ({entity_type})")
-                    return existing_id
+                    return None  # Адрес был обновлен
                 else:
-                    # Адрес существует и не требует обновления
-                    logging.debug(f"Адрес {address} уже существует в БД, пропускаем")
-                    return None
-            else:
-                # Добавляем новый адрес
-                cursor.execute(
-                    "INSERT INTO addresses (address, chain, name, entity_type, created_at, updated_at) VALUES (%s, %s, %s, %s, NOW(), NOW()) RETURNING id",
-                    (address, chain, entity_name, entity_type)
-                )
-                new_id = cursor.fetchone()[0]
-                conn.commit()
-                logging.info(f"Добавлен новый адрес: {address} ({entity_name}, {entity_type})")
-                return new_id
-                
-        except psycopg2.Error as e:
+                    # Если адрес не существует, добавляем новый
+                    cursor.execute(
+                        """
+                        INSERT INTO addresses (address, chain, entity_name, entity_type, created_at, updated_at)
+                        VALUES (%s, %s, %s, %s, NOW(), NOW())
+                        RETURNING id
+                        """,
+                        (address, chain, entity_name, entity_type)
+                    )
+                    address_id = cursor.fetchone()[0]
+                    conn.commit()
+                    return address_id  # Адрес был создан
+        except Exception as e:
             logging.error(f"Ошибка при сохранении адреса {address}: {str(e)}")
-            if conn:
-                conn.rollback()
-            raise
-        finally:
-            if conn:
-                self.db.release_connection(conn)
+            raise e
 
     def save_tags(self, address, tags_dict):
         """
-        Сохраняет теги для адреса.
+        Сохраняет теги для указанного адреса.
         
         Args:
-            address (str): Адрес кошелька
-            tags_dict (dict): Словарь категорий и тегов в формате {category: [tag1, tag2, ...]}
-                где tag может быть строкой (старый формат) или словарем {'id': '...', 'name': '...'}
+            address (str): Адрес кошелька.
+            tags_dict (dict): Словарь тегов в формате {категория: [список_тегов]},
+                             где каждый тег это словарь {'id': 'тег_id', 'name': 'имя_тега'}.
         """
         if not tags_dict:
-            logging.debug(f"Для адреса {address} нет тегов для сохранения")
             return
             
         try:
-            conn = self.db.get_connection()
-            cursor = conn.cursor()
-            
-            # Получаем ID адреса
-            cursor.execute("SELECT id FROM addresses WHERE address = %s", (address,))
-            result = cursor.fetchone()
-            
-            if not result:
-                logging.warning(f"Не удалось найти адрес {address} для сохранения тегов")
-                return
+            with self.db.get_connection() as conn:
+                cursor = conn.cursor()
                 
-            address_id = result[0]
-            tags_saved = 0
-            
-            # Сохраняем теги для каждой категории
-            for category, tag_items in tags_dict.items():
-                for tag_item in tag_items:
-                    # Проверяем формат тега
-                    if isinstance(tag_item, dict):
-                        # Новый формат: словарь с полями id и name
-                        tag_link = tag_item.get('id')
-                        tag_name = tag_item.get('name')
-                    else:
-                        # Старый формат: строка
-                        tag_link = tag_item
-                        tag_name = tag_item
-                        
-                    if not tag_link:
-                        logging.warning(f"Пропускаю тег без link для адреса {address}")
-                        continue
-                        
-                    # Проверяем существование тега в таблице tags
-                    cursor.execute("SELECT id FROM tags WHERE link = %s", (tag_link,))
-                    tag_result = cursor.fetchone()
+                # Получаем ID адреса
+                cursor.execute(
+                    "SELECT id FROM addresses WHERE address = %s",
+                    (address,)
+                )
+                address_result = cursor.fetchone()
+                
+                if not address_result:
+                    logging.error(f"Не удалось найти адрес {address} для добавления тегов")
+                    return
                     
-                    if not tag_result:
-                        # Получаем ID категории
-                        cursor.execute("SELECT id FROM tag_categories WHERE name = %s", (category,))
-                        category_result = cursor.fetchone()
-                        
-                        if not category_result:
-                            # Если категории нет, создаем её
-                            cursor.execute(
-                                "INSERT INTO tag_categories (name, created_at) VALUES (%s, NOW()) RETURNING id",
-                                (category,)
-                            )
-                            category_id = cursor.fetchone()[0]
-                            logging.info(f"Создана новая категория тегов: {category}")
-                        else:
-                            category_id = category_result[0]
-                        
-                        # Добавляем новый тег в таблицу tags
-                        cursor.execute(
-                            "INSERT INTO tags (tag, link, category_id, created_at) VALUES (%s, %s, %s, NOW()) RETURNING id",
-                            (tag_name, tag_link, category_id)
-                        )
-                        tag_id = cursor.fetchone()[0]
-                        logging.info(f"Создан новый тег: {tag_name} (link: {tag_link}) в категории {category}")
-                    else:
-                        tag_id = tag_result[0]
-                    
-                    # Проверяем, существует ли уже связь между адресом и тегом
+                address_id = address_result[0]
+                
+                # Обрабатываем теги по категориям
+                for category, tags_list in tags_dict.items():
+                    # Убедимся, что категория существует
                     cursor.execute(
-                        "SELECT id FROM address_tags WHERE address_id = %s AND tag_id = %s",
-                        (address_id, tag_id)
+                        """
+                        INSERT INTO tag_categories (name) 
+                        VALUES (%s) 
+                        ON CONFLICT (name) DO NOTHING
+                        RETURNING id
+                        """,
+                        (category,)
                     )
+                    category_id_result = cursor.fetchone()
                     
-                    if not cursor.fetchone():
-                        # Добавляем новую связь
+                    if category_id_result:
+                        category_id = category_id_result[0]
+                    else:
+                        # Если категория уже существовала, получаем её ID
                         cursor.execute(
-                            "INSERT INTO address_tags (address_id, tag_id, created_at) VALUES (%s, %s, NOW())",
-                            (address_id, tag_id)
+                            "SELECT id FROM tag_categories WHERE name = %s",
+                            (category,)
                         )
-                        tags_saved += 1
-            
-            conn.commit()
-            
-            if tags_saved > 0:
-                logging.info(f"Для адреса {address} сохранено {tags_saved} новых тегов")
-            else:
-                logging.debug(f"Для адреса {address} все теги уже сохранены")
+                        category_id = cursor.fetchone()[0]
+                    
+                    # Обрабатываем теги в категории
+                    for tag_item in tags_list:
+                        tag_id = tag_item.get('id')
+                        tag_name = tag_item.get('name', tag_id)
+                        
+                        if not tag_id:
+                            continue
+                            
+                        # Сохраняем тег, если он не существует
+                        cursor.execute(
+                            """
+                            INSERT INTO tags (tag_id, name, category_id) 
+                            VALUES (%s, %s, %s) 
+                            ON CONFLICT (tag_id) DO UPDATE 
+                            SET name = EXCLUDED.name, category_id = EXCLUDED.category_id
+                            RETURNING id
+                            """,
+                            (tag_id, tag_name, category_id)
+                        )
+                        db_tag_id = cursor.fetchone()[0]
+                        
+                        # Связываем тег с адресом
+                        cursor.execute(
+                            """
+                            INSERT INTO address_tags (address_id, tag_id) 
+                            VALUES (%s, %s) 
+                            ON CONFLICT (address_id, tag_id) DO NOTHING
+                            """,
+                            (address_id, db_tag_id)
+                        )
                 
-        except psycopg2.Error as e:
+                conn.commit()
+        except Exception as e:
             logging.error(f"Ошибка при сохранении тегов для адреса {address}: {str(e)}")
-            if conn:
-                conn.rollback()
-        finally:
-            if conn:
-                self.db.release_connection(conn)
-    
+            raise e
+
     def save_tag_categories(self, categories_data: Dict[str, List[Dict[str, str]]]):
         """Сохраняет категории тегов из JSON файла."""
         try:
@@ -393,212 +369,97 @@ class ArkhamRepository:
             raise
 
 
-def init_database():
-    """Инициализирует базу данных, создавая необходимые таблицы."""
-    # Получаем настройки подключения из переменных окружения
-    db_config = {
-        "host": os.getenv("DB_HOST", "localhost"),
-        "port": os.getenv("DB_PORT", "5432"),
-        "database": os.getenv("DB_NAME", "arkham_db"),
-        "user": os.getenv("DB_USER", "postgres"),
-        "password": os.getenv("DB_PASSWORD", "postgres")
-    }
+def init_database(db_host, db_port, db_user, db_password, db_name, min_conn=1, max_conn=10):
+    """
+    Инициализирует соединение с базой данных и создает необходимые таблицы если их нет.
     
-    conn = None
-    
-    try:
-        logging.info(f"Подключение к базе данных на {db_config['host']}:{db_config['port']} ...")
+    Args:
+        db_host (str): Хост базы данных.
+        db_port (int): Порт базы данных.
+        db_user (str): Имя пользователя.
+        db_password (str): Пароль пользователя.
+        db_name (str): Имя базы данных.
+        min_conn (int): Минимальное количество соединений в пуле.
+        max_conn (int): Максимальное количество соединений в пуле.
         
-        # Пытаемся подключиться к базе данных
+    Returns:
+        Database: Объект для работы с базой данных.
+        
+    Raises:
+        Exception: Если не удается подключиться к базе данных.
+    """
+    # Попытка подключения
+    for attempt in range(5):
         try:
-            conn = psycopg2.connect(**db_config)
-            conn.autocommit = True
-            logging.info(f"Успешное подключение к БД {db_config['database']}")
-        except psycopg2.OperationalError as e:
-            logging.error(f"Ошибка подключения: {str(e)}")
-            if "does not exist" in str(e):
-                # База данных не существует, создаем ее
-                db_config_temp = db_config.copy()
-                db_config_temp["database"] = "postgres"  # Используем стандартную базу postgres для подключения
-                
-                logging.info(f"База данных {db_config['database']} не существует. Создаем...")
-                
-                try:
-                    conn_temp = psycopg2.connect(**db_config_temp)
-                    conn_temp.autocommit = True
-                    cursor_temp = conn_temp.cursor()
-                    
-                    # Создаем базу данных
-                    cursor_temp.execute(f"CREATE DATABASE {db_config['database']}")
-                    
-                    cursor_temp.close()
-                    conn_temp.close()
-                    
-                    # Подключаемся к новой базе данных
-                    conn = psycopg2.connect(**db_config)
-                    conn.autocommit = True
-                    logging.info(f"База данных {db_config['database']} успешно создана")
-                except Exception as create_db_err:
-                    logging.error(f"Не удалось создать базу данных: {str(create_db_err)}")
-                    raise
-            else:
-                raise
-        
-        cursor = conn.cursor()
-        
-        # Создаем таблицу для категорий тегов
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS tag_categories (
-            id SERIAL PRIMARY KEY,
-            name VARCHAR(100) NOT NULL UNIQUE,
-            created_at TIMESTAMP NOT NULL
-        )
-        """)
-        
-        # Создаем таблицу для тегов
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS tags (
-            id SERIAL PRIMARY KEY,
-            tag VARCHAR(255) NOT NULL,
-            link VARCHAR(255) NOT NULL UNIQUE,
-            category_id INTEGER REFERENCES tag_categories(id),
-            created_at TIMESTAMP NOT NULL
-        )
-        """)
-        
-        # Проверяем, существует ли таблица addresses
-        cursor.execute("""
-        SELECT EXISTS (
-            SELECT FROM information_schema.tables 
-            WHERE table_schema = 'public' 
-            AND table_name = 'addresses'
-        )
-        """)
-        table_exists = cursor.fetchone()[0]
-        
-        if not table_exists:
-            # Создаем таблицу для адресов
-            cursor.execute("""
-            CREATE TABLE addresses (
-                id SERIAL PRIMARY KEY,
-                address VARCHAR(255) NOT NULL,
-                name VARCHAR(255),
-                chain VARCHAR(50) NOT NULL,
-                entity_type VARCHAR(100),
-                created_at TIMESTAMP NOT NULL,
-                updated_at TIMESTAMP NOT NULL,
-                UNIQUE(address, chain)
+            logging.info(f"Попытка подключения к БД {db_name} на {db_host}:{db_port} (попытка {attempt+1}/5)")
+            db = Database(
+                host=db_host,
+                port=db_port,
+                user=db_user,
+                password=db_password,
+                dbname=db_name,
+                min_conn=min_conn,
+                max_conn=max_conn
             )
-            """)
-        else:
-            # Проверяем, существует ли колонка chain
-            cursor.execute("""
-            SELECT EXISTS (
-                SELECT FROM information_schema.columns 
-                WHERE table_schema = 'public' 
-                AND table_name = 'addresses' 
-                AND column_name = 'chain'
-            )
-            """)
-            column_exists = cursor.fetchone()[0]
             
-            if not column_exists:
-                # Добавляем колонку chain
-                logging.info("Добавляем колонку chain в таблицу addresses")
+            # Создаем нужные таблицы, если их нет
+            with db.get_connection() as conn:
+                cursor = conn.cursor()
                 
-                try:
-                    # Получаем информацию о существующих ограничениях
-                    cursor.execute("""
-                    SELECT constraint_name 
-                    FROM information_schema.table_constraints 
-                    WHERE table_name = 'addresses' 
-                    AND constraint_type = 'UNIQUE'
-                    """)
-                    constraints = cursor.fetchall()
-                    
-                    if constraints:
-                        for constraint in constraints:
-                            constraint_name = constraint[0]
-                            logging.info(f"Найдено ограничение: {constraint_name}")
-                            try:
-                                logging.info(f"Удаляем ограничение {constraint_name}")
-                                cursor.execute(f"""
-                                ALTER TABLE addresses 
-                                DROP CONSTRAINT {constraint_name}
-                                """)
-                            except Exception as e:
-                                logging.warning(f"Не удалось удалить ограничение {constraint_name}: {str(e)}")
-                    else:
-                        logging.info("Не найдено ограничений уникальности для таблицы addresses")
-                    
-                    # Добавляем колонку chain
-                    cursor.execute("""
-                    ALTER TABLE addresses 
-                    ADD COLUMN chain VARCHAR(50) NOT NULL DEFAULT 'unknown'
-                    """)
-                    
-                    # Создаем новое ограничение с учетом колонки chain
-                    try:
-                        cursor.execute("""
-                        ALTER TABLE addresses 
-                        ADD CONSTRAINT addresses_address_chain_unique UNIQUE (address, chain)
-                        """)
-                        logging.info("Создано новое ограничение уникальности (address, chain)")
-                    except Exception as e:
-                        logging.warning(f"Не удалось создать новое ограничение: {str(e)}")
-                        
-                except Exception as e:
-                    logging.error(f"Ошибка при модификации структуры таблицы addresses: {str(e)}")
-                    # Продолжаем выполнение, чтобы попытаться обработать остальные таблицы
-            
-            # Проверяем другие колонки и добавляем их при необходимости
-            columns_to_check = [
-                ("entity_type", "VARCHAR(100)"),
-                ("updated_at", "TIMESTAMP NOT NULL DEFAULT NOW()")
-            ]
-            
-            for column_name, column_type in columns_to_check:
-                cursor.execute(f"""
-                SELECT EXISTS (
-                    SELECT FROM information_schema.columns 
-                    WHERE table_schema = 'public' 
-                    AND table_name = 'addresses' 
-                    AND column_name = '{column_name}'
+                # Таблица категорий тегов
+                cursor.execute("""
+                CREATE TABLE IF NOT EXISTS tag_categories (
+                    id SERIAL PRIMARY KEY,
+                    name VARCHAR(100) UNIQUE NOT NULL,
+                    created_at TIMESTAMP NOT NULL DEFAULT NOW()
                 )
                 """)
-                column_exists = cursor.fetchone()[0]
                 
-                if not column_exists:
-                    logging.info(f"Добавляем колонку {column_name} в таблицу addresses")
-                    cursor.execute(f"""
-                    ALTER TABLE addresses 
-                    ADD COLUMN {column_name} {column_type}
-                    """)
-        
-        # Создаем таблицу для связи адресов и тегов
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS address_tags (
-            id SERIAL PRIMARY KEY,
-            address_id INTEGER REFERENCES addresses(id),
-            tag_id INTEGER REFERENCES tags(id),
-            created_at TIMESTAMP NOT NULL,
-            UNIQUE(address_id, tag_id)
-        )
-        """)
-        
-        # Создаем индексы для оптимизации запросов
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_addresses_address ON addresses(address)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_addresses_chain ON addresses(chain)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_tags_link ON tags(link)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_tags_category ON tags(category_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_address_tags_address ON address_tags(address_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_address_tags_tag ON address_tags(tag_id)")
-        
-        logging.info("База данных успешно инициализирована")
-        
-    except Exception as e:
-        logging.error(f"Ошибка при инициализации базы данных: {str(e)}")
-        raise
-    finally:
-        if conn:
-            conn.close() 
+                # Таблица тегов
+                cursor.execute("""
+                CREATE TABLE IF NOT EXISTS tags (
+                    id SERIAL PRIMARY KEY,
+                    tag_id VARCHAR(255) UNIQUE NOT NULL,
+                    name VARCHAR(255) NOT NULL,
+                    category_id INTEGER REFERENCES tag_categories(id),
+                    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+                )
+                """)
+                
+                # Таблица адресов
+                cursor.execute("""
+                CREATE TABLE IF NOT EXISTS addresses (
+                    id SERIAL PRIMARY KEY,
+                    address VARCHAR(255) UNIQUE NOT NULL,
+                    chain VARCHAR(50),
+                    entity_name VARCHAR(255),
+                    entity_type VARCHAR(100),
+                    created_at TIMESTAMP NOT NULL,
+                    updated_at TIMESTAMP NOT NULL
+                )
+                """)
+                
+                # Таблица связей адрес-тег
+                cursor.execute("""
+                CREATE TABLE IF NOT EXISTS address_tags (
+                    id SERIAL PRIMARY KEY,
+                    address_id INTEGER REFERENCES addresses(id),
+                    tag_id INTEGER REFERENCES tags(id),
+                    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                    UNIQUE(address_id, tag_id)
+                )
+                """)
+                
+                conn.commit()
+                logging.info("Структура базы данных успешно инициализирована")
+            
+            return db
+            
+        except (psycopg2.OperationalError, psycopg2.DatabaseError) as e:
+            logging.error(f"Ошибка подключения к БД (попытка {attempt+1}): {str(e)}")
+            time.sleep(5)  # Ждем 5 секунд перед повторной попыткой
+    
+    # Если дошли сюда, значит все попытки подключения не удались
+    error_msg = f"Не удалось подключиться к базе данных после 5 попыток"
+    logging.error(error_msg)
+    raise Exception(error_msg) 
