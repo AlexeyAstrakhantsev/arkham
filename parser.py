@@ -408,19 +408,16 @@ def main():
         db_name = os.getenv("DB_NAME", "arkham_db")
         db_user = os.getenv("DB_USER", "postgres")
         db_password = os.getenv("DB_PASSWORD", "postgres")
-        db_min_conn = int(os.getenv("DB_MIN_CONNECTIONS", "5"))
-        db_max_conn = int(os.getenv("DB_MAX_CONNECTIONS", "20"))
         
         # Инициализируем соединение с базой данных
-        db = init_database(
-            db_host=db_host,
-            db_port=db_port,
-            db_user=db_user,
-            db_password=db_password,
-            db_name=db_name,
-            min_conn=db_min_conn,
-            max_conn=db_max_conn
+        db = Database(
+            host=db_host,
+            port=db_port,
+            user=db_user,
+            password=db_password,
+            dbname=db_name
         )
+        db.connect()
         
         # Создаем репозиторий для работы с данными
         repository = ArkhamRepository(db)
@@ -476,6 +473,9 @@ def main():
     except Exception as e:
         logging.error(f"Критическая ошибка при выполнении программы: {str(e)}")
         traceback.print_exc()
+    finally:
+        # Закрываем соединение с базой данных
+        db.close()
 
 if __name__ == "__main__":
     main()

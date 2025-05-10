@@ -20,10 +20,13 @@ logging.basicConfig(
 )
 
 class Database:
-    """Класс для работы с базой данных PostgreSQL с использованием пула соединений."""
-    
-    def __init__(self, host, port, user, password, dbname, min_conn=1, max_conn=10):
-        """Инициализирует подключение к базе данных из переменных окружения."""
+    """
+    Класс для работы с базой данных PostgreSQL без использования пула соединений.
+    """
+    def __init__(self, host, port, user, password, dbname):
+        """
+        Инициализирует подключение к базе данных.
+        """
         self.config = {
             "host": host,
             "port": port,
@@ -31,135 +34,40 @@ class Database:
             "user": user,
             "password": password
         }
-        
-        # Минимальное и максимальное количество соединений в пуле
-        self.min_connections = min_conn
-        self.max_connections = max_conn
-        
-        # Создаем пул соединений
-        self.pool = psycopg2.pool.SimpleConnectionPool(
-            self.min_connections,
-            self.max_connections,
-            **self.config
-        )
-        logging.info(f"Создан пул соединений к базе данных на {self.config['host']}:{self.config['port']} (мин: {self.min_connections}, макс: {self.max_connections})")
-    
-    def get_connection(self):
-        """Получает соединение из пула."""
-        try:
-            conn = self.pool.getconn()
-            if conn:
-                return conn
-            else:
-                logging.error("Не удалось получить соединение из пула (получен None)")
-                raise Exception("Не удалось получить соединение из пула")
-        except Exception as e:
-            logging.error(f"Ошибка при получении соединения из пула: {str(e)}")
-            raise
-    
-    def release_connection(self, conn):
-        """Возвращает соединение в пул."""
-        try:
-            self.pool.putconn(conn)
-        except Exception as e:
-            logging.error(f"Ошибка при возврате соединения в пул: {str(e)}")
-            # В случае ошибки возврата соединения, пытаемся его закрыть
+        self.connection = None
+
+    def connect(self):
+        """
+        Устанавливает соединение с базой данных.
+        """
+        if self.connection is None:
             try:
-                conn.close()
-                logging.warning("Соединение закрыто вместо возврата в пул")
-            except:
-                logging.error("Не удалось закрыть соединение")
-    
-    def execute_query(self, query, params=None, fetch=False, fetch_one=False):
-        """Выполняет SQL запрос с возможностью получения результатов."""
-        conn = None
-        cursor = None
-        result = None
-        
-        try:
-            conn = self.get_connection()
-            cursor = conn.cursor()
-            
-            try:
-                # Логирование запроса, но без полного текста параметров для безопасности
-                param_preview = str(params)[:100] if params else "None"
-                logging.debug(f"Выполнение SQL: {query[:100]}... с параметрами: {param_preview}...")
-                
-                cursor.execute(query, params)
-                
-                if fetch:
-                    result = cursor.fetchall()
-                    logging.debug(f"Получено {len(result)} записей")
-                elif fetch_one:
-                    result = cursor.fetchone()
-                    logging.debug(f"Получена запись: {result}")
-                else:
-                    # Для INSERT/UPDATE/DELETE запросов проверяем число затронутых строк
-                    affected_rows = cursor.rowcount
-                    logging.debug(f"Затронуто строк: {affected_rows}")
-                    
-                conn.commit()
-                
-                # Проверка вернувшегося результата
-                if (fetch or fetch_one) and result is None:
-                    logging.warning(f"Запрос не вернул данных: {query[:100]}...")
-                
-                return result
-            except Exception as e:
-                logging.error(f"Ошибка при выполнении SQL запроса: {str(e)}")
-                logging.error(f"Запрос: {query[:100]}... Параметры: {param_preview}...")
-                conn.rollback()
+                self.connection = psycopg2.connect(**self.config)
+                logging.info(f"Установлено соединение с базой данных на {self.config['host']}:{self.config['port']}")
+            except psycopg2.Error as e:
+                logging.error(f"Ошибка подключения к базе данных: {str(e)}")
                 raise
-        except Exception as e:
-            if conn:
-                conn.rollback()
-            logging.error(f"Ошибка при выполнении запроса: {str(e)}")
-            raise
-        finally:
-            if cursor:
-                cursor.close()
-            if conn:
-                self.release_connection(conn)
-    
-    def get_pool_status(self):
-        """Возвращает статус пула соединений."""
-        if not hasattr(self, 'pool') or not self.pool:
-            return "Пул соединений не инициализирован"
-            
-        try:
-            # Исправление: предохранимся от ошибок получения атрибутов
-            # Разные версии psycopg2 могут использовать разные названия атрибутов
-            if hasattr(self.pool, '_used'):
-                used = len(self.pool._used)
-            else:
-                used = 0
-                
-            if hasattr(self.pool, '_unused'):
-                free = len(self.pool._unused)
-            else:
-                # Альтернативный вариант, может использоваться в некоторых версиях psycopg2
-                if hasattr(self.pool, '_pool'):
-                    free = len(self.pool._pool)
-                else:
-                    free = 0
-                    
-            total = used + free
-            max_conn = self.pool._maxconn if hasattr(self.pool, '_maxconn') else "N/A"
-            status = f"Пул соединений: {used} используется, {free} свободно, {total} всего, максимум {max_conn}"
-            logging.info(status)
-            return status
-        except Exception as e:
-            logging.error(f"Ошибка при получении статуса пула: {str(e)}")
-            return f"Ошибка получения статуса пула: {str(e)}"
-    
+
+    def get_connection(self):
+        """
+        Возвращает текущее соединение с базой данных.
+        """
+        if self.connection is None:
+            self.connect()
+        return self.connection
+
     def close(self):
-        """Закрывает все соединения в пуле."""
-        if hasattr(self, 'pool') and self.pool:
+        """
+        Закрывает соединение с базой данных.
+        """
+        if self.connection is not None:
             try:
-                self.pool.closeall()
-                logging.info("Пул соединений закрыт")
-            except Exception as e:
-                logging.error(f"Ошибка при закрытии пула соединений: {str(e)}")
+                self.connection.close()
+                logging.info("Соединение с базой данных закрыто")
+            except psycopg2.Error as e:
+                logging.error(f"Ошибка при закрытии соединения с базой данных: {str(e)}")
+            finally:
+                self.connection = None
 
 
 class ArkhamRepository:
