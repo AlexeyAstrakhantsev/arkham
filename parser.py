@@ -244,9 +244,31 @@ def process_tag(tag_link, output_file, repository, tag_categories):
             
             # Получаем теги для адреса
             tags = {}
+            
+            # Добавляем основной тег из категории
             if tag_categories.get(tag_link):
                 category = tag_categories[tag_link]
                 tags[category] = [tag_link]
+            
+            # Получаем дополнительные теги из API
+            api_tags = addr_data.get('tags', [])
+            if api_tags:
+                logging.info(f"Найдено {len(api_tags)} дополнительных тегов в API для адреса {addr}")
+                
+                # Группируем теги по категориям
+                for api_tag in api_tags:
+                    tag_id = api_tag.get('id')
+                    tag_label = api_tag.get('label')
+                    
+                    if tag_id and tag_label:
+                        # Определяем категорию тега: из тех, что известны нам, или "API_Tags"
+                        category = tag_categories.get(tag_id, "API_Tags")
+                        
+                        if category not in tags:
+                            tags[category] = []
+                            
+                        tags[category].append(tag_id)
+                        logging.debug(f"Добавлен тег из API: {tag_label} ({tag_id}) в категорию {category}")
             
             # Если адрес найден, сохраняем его
             if addr:
@@ -255,9 +277,10 @@ def process_tag(tag_link, output_file, repository, tag_categories):
                 # Пытаемся сохранить адрес в БД
                 try:
                     result = repository.save_address(addr, chain, entity_name, entity_type)
-                    # Если адрес новый (не None), сохраняем теги
+                    # Сохраняем теги для адреса (в любом случае, даже если адрес уже существовал)
+                    repository.save_tags(addr, tags)
+                    
                     if result is not None:
-                        repository.save_tags(addr, tags)
                         new_addresses += 1
                     else:
                         existing_addresses += 1

@@ -207,17 +207,47 @@ class ArkhamRepository:
             # Сохраняем теги для каждой категории
             for category, tag_links in tags_dict.items():
                 for tag_link in tag_links:
-                    # Проверяем, существует ли уже тег для этого адреса
+                    # Проверяем существование тега в таблице tags
+                    cursor.execute("SELECT id FROM tags WHERE link = %s", (tag_link,))
+                    tag_result = cursor.fetchone()
+                    
+                    if not tag_result:
+                        # Получаем ID категории
+                        cursor.execute("SELECT id FROM tag_categories WHERE name = %s", (category,))
+                        category_result = cursor.fetchone()
+                        
+                        if not category_result:
+                            # Если категории нет, создаем её
+                            cursor.execute(
+                                "INSERT INTO tag_categories (name, created_at) VALUES (%s, NOW()) RETURNING id",
+                                (category,)
+                            )
+                            category_id = cursor.fetchone()[0]
+                            logging.info(f"Создана новая категория тегов: {category}")
+                        else:
+                            category_id = category_result[0]
+                        
+                        # Добавляем новый тег в таблицу tags
+                        cursor.execute(
+                            "INSERT INTO tags (tag, link, category_id, created_at) VALUES (%s, %s, %s, NOW()) RETURNING id",
+                            (tag_link, tag_link, category_id)
+                        )
+                        tag_id = cursor.fetchone()[0]
+                        logging.info(f"Создан новый тег: {tag_link} в категории {category}")
+                    else:
+                        tag_id = tag_result[0]
+                    
+                    # Проверяем, существует ли уже связь между адресом и тегом
                     cursor.execute(
-                        "SELECT id FROM address_tags WHERE address_id = %s AND tag_link = %s",
-                        (address_id, tag_link)
+                        "SELECT id FROM address_tags WHERE address_id = %s AND tag_id = %s",
+                        (address_id, tag_id)
                     )
                     
                     if not cursor.fetchone():
-                        # Добавляем новый тег
+                        # Добавляем новую связь
                         cursor.execute(
-                            "INSERT INTO address_tags (address_id, tag_link, category) VALUES (%s, %s, %s)",
-                            (address_id, tag_link, category)
+                            "INSERT INTO address_tags (address_id, tag_id, created_at) VALUES (%s, %s, NOW())",
+                            (address_id, tag_id)
                         )
                         tags_saved += 1
             
