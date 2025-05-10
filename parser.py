@@ -123,6 +123,9 @@ def get_arkham_tag_data(tag_link, page):
             
             data = response.json()
             
+            # Логирование полного ответа от API
+            logging.debug(f"Полный ответ от API: {json.dumps(data, ensure_ascii=False)}")
+            
             # Проверка на пустой ответ
             if 'addresses' not in data:
                 logging.warning(f"Ответ API не содержит ключ 'addresses'. Ключи: {list(data.keys())}")
