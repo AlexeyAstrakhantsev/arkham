@@ -409,15 +409,14 @@ def main():
         db_user = os.getenv("DB_USER", "postgres")
         db_password = os.getenv("DB_PASSWORD", "postgres")
         
-        # Инициализируем соединение с базой данных
-        db = Database(
-            host=db_host,
-            port=db_port,
-            user=db_user,
-            password=db_password,
-            dbname=db_name
+        # Инициализируем соединение с базой данных и создаем таблицы
+        db = init_database(
+            db_host=db_host,
+            db_port=db_port,
+            db_user=db_user,
+            db_password=db_password,
+            db_name=db_name
         )
-        db.connect()
         
         # Создаем репозиторий для работы с данными
         repository = ArkhamRepository(db)
