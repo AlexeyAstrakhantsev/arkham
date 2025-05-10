@@ -174,7 +174,7 @@ class ArkhamRepository:
             
             # Проверяем, существует ли уже адрес
             cursor.execute(
-                "SELECT id, entity_name, entity_type FROM addresses WHERE address = %s",
+                "SELECT id, name, entity_type FROM addresses WHERE address = %s",
                 (address,)
             )
             existing = cursor.fetchone()
@@ -186,7 +186,7 @@ class ArkhamRepository:
                 if (entity_name and existing_name != entity_name) or (entity_type and existing_type != entity_type):
                     # Обновляем существующую запись только если есть изменения
                     cursor.execute(
-                        "UPDATE addresses SET entity_name = %s, entity_type = %s WHERE id = %s",
+                        "UPDATE addresses SET name = %s, entity_type = %s WHERE id = %s",
                         (entity_name or existing_name, entity_type or existing_type, existing_id)
                     )
                     conn.commit()
@@ -199,7 +199,7 @@ class ArkhamRepository:
             else:
                 # Добавляем новый адрес
                 cursor.execute(
-                    "INSERT INTO addresses (address, chain, entity_name, entity_type) VALUES (%s, %s, %s, %s) RETURNING id",
+                    "INSERT INTO addresses (address, chain, name, entity_type, created_at, updated_at) VALUES (%s, %s, %s, %s, NOW(), NOW()) RETURNING id",
                     (address, chain, entity_name, entity_type)
                 )
                 new_id = cursor.fetchone()[0]
@@ -223,6 +223,7 @@ class ArkhamRepository:
         Args:
             address (str): Адрес кошелька
             tags_dict (dict): Словарь категорий и тегов в формате {category: [tag1, tag2, ...]}
+                где tag может быть строкой (старый формат) или словарем {'id': '...', 'name': '...'}
         """
         if not tags_dict:
             logging.debug(f"Для адреса {address} нет тегов для сохранения")
@@ -244,8 +245,22 @@ class ArkhamRepository:
             tags_saved = 0
             
             # Сохраняем теги для каждой категории
-            for category, tag_links in tags_dict.items():
-                for tag_link in tag_links:
+            for category, tag_items in tags_dict.items():
+                for tag_item in tag_items:
+                    # Проверяем формат тега
+                    if isinstance(tag_item, dict):
+                        # Новый формат: словарь с полями id и name
+                        tag_link = tag_item.get('id')
+                        tag_name = tag_item.get('name')
+                    else:
+                        # Старый формат: строка
+                        tag_link = tag_item
+                        tag_name = tag_item
+                        
+                    if not tag_link:
+                        logging.warning(f"Пропускаю тег без link для адреса {address}")
+                        continue
+                        
                     # Проверяем существование тега в таблице tags
                     cursor.execute("SELECT id FROM tags WHERE link = %s", (tag_link,))
                     tag_result = cursor.fetchone()
@@ -269,10 +284,10 @@ class ArkhamRepository:
                         # Добавляем новый тег в таблицу tags
                         cursor.execute(
                             "INSERT INTO tags (tag, link, category_id, created_at) VALUES (%s, %s, %s, NOW()) RETURNING id",
-                            (tag_link, tag_link, category_id)
+                            (tag_name, tag_link, category_id)
                         )
                         tag_id = cursor.fetchone()[0]
-                        logging.info(f"Создан новый тег: {tag_link} в категории {category}")
+                        logging.info(f"Создан новый тег: {tag_name} (link: {tag_link}) в категории {category}")
                     else:
                         tag_id = tag_result[0]
                     

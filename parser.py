@@ -248,12 +248,40 @@ def process_tag(tag_link, output_file, repository, tag_categories):
             # Добавляем основной тег из категории
             if tag_categories.get(tag_link):
                 category = tag_categories[tag_link]
-                tags[category] = [tag_link]
+                # Используем новый формат тегов
+                tags[category] = [{
+                    'id': tag_link,      # link
+                    'name': tag_name     # tag name
+                }]
             
             # Получаем дополнительные теги из API
             api_tags = addr_data.get('tags', [])
+            # Получаем populatedTags, если есть
+            populated_tags = addr_data.get('populatedTags', [])
+            
+            # Обрабатываем populatedTags, если они есть
+            if populated_tags:
+                logging.info(f"Найдено {len(populated_tags)} тегов в populatedTags для адреса {addr}")
+                
+                # Если нет тегов из API, инициализируем api_tags
+                if not api_tags:
+                    api_tags = []
+                
+                # Добавляем populatedTags в api_tags
+                for ptag in populated_tags:
+                    tag_id = ptag.get('id')
+                    tag_label = ptag.get('label')
+                    
+                    if tag_id and tag_label:
+                        # Добавляем тег в api_tags, используя label как название тега
+                        api_tags.append({
+                            'id': tag_id,      # Сохраняем id как link
+                            'label': tag_label # Используем label как название тега
+                        })
+                        logging.debug(f"Добавлен тег из populatedTags: {tag_label} ({tag_id})")
+            
             if api_tags:
-                logging.info(f"Найдено {len(api_tags)} дополнительных тегов в API для адреса {addr}")
+                logging.info(f"Всего {len(api_tags)} тегов для обработки для адреса {addr}")
                 
                 # Группируем теги по категориям
                 for api_tag in api_tags:
@@ -267,8 +295,12 @@ def process_tag(tag_link, output_file, repository, tag_categories):
                         if category not in tags:
                             tags[category] = []
                             
-                        tags[category].append(tag_id)
-                        logging.debug(f"Добавлен тег из API: {tag_label} ({tag_id}) в категорию {category}")
+                        # Вместо добавления просто tag_id, создаем сложную структуру с id и label
+                        tags[category].append({
+                            'id': tag_id,       # link будет использовать id
+                            'name': tag_label   # name будет использовать label
+                        })
+                        logging.debug(f"Добавлен тег: {tag_label} ({tag_id}) в категорию {category}")
             
             # Если адрес найден, сохраняем его
             if addr:
