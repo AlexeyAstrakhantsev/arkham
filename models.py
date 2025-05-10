@@ -69,6 +69,32 @@ class Database:
             finally:
                 self.connection = None
 
+    def execute_query(self, query, params=None, fetch=False, fetch_one=False):
+        """
+        Выполняет SQL запрос с возможностью получения результатов.
+        
+        Args:
+            query (str): SQL запрос для выполнения.
+            params (tuple): Параметры для SQL запроса.
+            fetch (bool): Если True, возвращает все результаты.
+            fetch_one (bool): Если True, возвращает один результат.
+        
+        Returns:
+            list или tuple: Результаты запроса, если fetch или fetch_one установлены в True.
+        """
+        try:
+            conn = self.get_connection()
+            with conn.cursor() as cursor:
+                cursor.execute(query, params)
+                if fetch:
+                    return cursor.fetchall()
+                if fetch_one:
+                    return cursor.fetchone()
+                conn.commit()
+        except Exception as e:
+            logging.error(f"Ошибка при выполнении SQL запроса: {str(e)}")
+            raise
+
 
 class ArkhamRepository:
     """Репозиторий для работы с данными Arkham в базе данных."""
