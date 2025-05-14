@@ -227,7 +227,16 @@ def process_tag(tag_link, output_file, repository, tag_categories, tags_data):
             arkham_label = addr_data.get('arkhamLabel', {})
             arkham_name = arkham_label.get('name', '')
             
-            # Если есть оба имени, объединяем их
+            # Получаем имя из arkhamEntity
+            arkham_entity = addr_data.get('arkhamEntity', {})
+            arkham_entity_name = arkham_entity.get('name', '')
+            
+            # Если есть имя в arkhamEntity, используем его как основное
+            if arkham_entity_name:
+                entity_name = arkham_entity_name
+                logging.debug(f"Имя взято из arkhamEntity: {entity_name}")
+            
+            # Если есть оба имени (entity_name и arkham_name), объединяем их
             if entity_name and arkham_name:
                 entity_name = f"{entity_name}: {arkham_name}"
                 logging.debug(f"Имена объединены: {entity_name}")
