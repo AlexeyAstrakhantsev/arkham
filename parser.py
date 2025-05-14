@@ -484,6 +484,15 @@ def main():
         
         logging.info("Обработка всех тегов завершена!")
         
+        # Удаляем файл arkham_process после завершения всех операций
+        try:
+            os.remove("arkham_process")
+            logging.info("Файл arkham_process успешно удален.")
+        except FileNotFoundError:
+            logging.warning("Файл arkham_process не найден.")
+        except Exception as e:
+            logging.error(f"Ошибка при удалении файла arkham_process: {str(e)}")
+        
     except Exception as e:
         logging.error(f"Критическая ошибка при выполнении программы: {str(e)}")
         traceback.print_exc()
