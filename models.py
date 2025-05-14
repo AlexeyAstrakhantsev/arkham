@@ -370,10 +370,9 @@ def init_database(db_host, db_port, db_user, db_password, db_name):
                     id SERIAL PRIMARY KEY,
                     tag_id VARCHAR(255) UNIQUE NOT NULL,
                     name VARCHAR(255) NOT NULL,
-                    tag_unified VARCHAR(50)
+                    tag_unified VARCHAR(50),
                     category_id INTEGER REFERENCES tag_categories(id),
-                    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-
+                    created_at TIMESTAMP NOT NULL DEFAULT NOW()
                 )
                 """)
                 
