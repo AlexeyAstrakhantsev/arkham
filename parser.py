@@ -227,6 +227,8 @@ def process_tag(tag_link, output_file, repository, tag_categories, tags_data):
                 arkham_label = addr_data.get('arkhamLabel', {})
                 entity_name = arkham_label.get('name', '')
                 logging.debug(f"Имя взято из arkhamLabel: {entity_name}")
+                # Логируем полный JSON для адреса с пустым именем
+                logging.info(f"Адрес с пустым именем. Полный JSON: {json.dumps(addr_data, ensure_ascii=False, indent=2)}")
             else:
                 # Если имя уже есть, проверяем наличие arkhamLabel
                 arkham_label = addr_data.get('arkhamLabel', {})
