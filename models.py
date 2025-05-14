@@ -370,8 +370,10 @@ def init_database(db_host, db_port, db_user, db_password, db_name):
                     id SERIAL PRIMARY KEY,
                     tag_id VARCHAR(255) UNIQUE NOT NULL,
                     name VARCHAR(255) NOT NULL,
+                    tag_unified VARCHAR(50)
                     category_id INTEGER REFERENCES tag_categories(id),
-                    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+                    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+
                 )
                 """)
                 
@@ -396,6 +398,19 @@ def init_database(db_host, db_port, db_user, db_password, db_name):
                     tag_id INTEGER REFERENCES tags(id),
                     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
                     UNIQUE(address_id, tag_id)
+                )
+                """)
+                
+                # Таблица unified_addresses
+                cursor.execute("""
+                CREATE TABLE IF NOT EXISTS unified_addresses (
+                    id SERIAL PRIMARY KEY,
+                    address VARCHAR(50) NOT NULL,
+                    type VARCHAR(20) NOT NULL,
+                    address_name VARCHAR(50),
+                    labels JSON,
+                    source VARCHAR(50),
+                    created_at TIMESTAMP NOT NULL DEFAULT timezone('utc'::text, now())
                 )
                 """)
                 
