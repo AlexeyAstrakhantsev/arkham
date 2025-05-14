@@ -137,7 +137,7 @@ class ArkhamRepository:
                         (chain, entity_name, entity_type, address)
                     )
                     conn.commit()
-                    return None  # Адрес был обновлен
+                    address_id = result[0]
                 else:
                     # Если адрес не существует, добавляем новый
                     cursor.execute(
@@ -150,26 +150,32 @@ class ArkhamRepository:
                     )
                     address_id = cursor.fetchone()[0]
                     conn.commit()
-                    return address_id  # Адрес был создан
                 
-                # Получаем tag_unified из таблицы tags
-                cursor.execute(
-                    "SELECT tag_unified FROM tags WHERE tag_id = %s",
-                    (address,)
-                )
-                tag_unified = cursor.fetchone()
+                # Получаем все теги для адреса и проверяем их tag_unified
+                cursor.execute("""
+                    SELECT DISTINCT t.tag_unified 
+                    FROM tags t
+                    JOIN address_tags at ON t.id = at.tag_id
+                    JOIN addresses a ON at.address_id = a.id
+                    WHERE a.address = %s AND t.tag_unified IS NOT NULL
+                """, (address,))
                 
-                if tag_unified and tag_unified[0]:
-                    # Если tag_unified не пустой, сохраняем в unified_addresses
-                    cursor.execute(
-                        """
-                        INSERT INTO unified_addresses (address, type, address_name, labels, source, created_at)
-                        VALUES (%s, %s, %s, '{}', 'akhram-tags', NOW())
-                        """,
-                        (address, tag_unified[0], entity_name)
-                    )
+                tag_unified_results = cursor.fetchall()
+                
+                if tag_unified_results:
+                    # Если есть теги с tag_unified, сохраняем в unified_addresses
+                    for tag_unified in tag_unified_results:
+                        cursor.execute(
+                            """
+                            INSERT INTO unified_addresses (address, type, address_name, labels, source, created_at)
+                            VALUES (%s, %s, %s, '{}', 'akhram-tags', NOW())
+                            """,
+                            (address, tag_unified[0], entity_name)
+                        )
                     conn.commit()
-                    logging.info(f"Адрес {address} сохранен в unified_addresses с типом {tag_unified[0]}")
+                    logging.info(f"Адрес {address} сохранен в unified_addresses с типами {[t[0] for t in tag_unified_results]}")
+                
+                return None if result else address_id  # Возвращаем None для обновленного адреса или ID для нового
         except Exception as e:
             logging.error(f"Ошибка при сохранении адреса {address}: {str(e)}")
             raise e
