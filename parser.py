@@ -227,6 +227,12 @@ def process_tag(tag_link, output_file, repository, tag_categories, tags_data):
                 arkham_label = addr_data.get('arkhamLabel', {})
                 entity_name = arkham_label.get('name', '')
                 logging.debug(f"Имя взято из arkhamLabel: {entity_name}")
+            else:
+                # Если имя уже есть, проверяем наличие arkhamLabel
+                arkham_label = addr_data.get('arkhamLabel', {})
+                if arkham_label.get('name'):
+                    entity_name = f"{entity_name}: {arkham_label.get('name')}"
+                    logging.debug(f"Имя объединено: {entity_name}")
             
             # Получаем теги для адреса
             tags = {}

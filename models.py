@@ -105,7 +105,7 @@ class ArkhamRepository:
     
     def save_address(self, address, chain, entity_name, entity_type):
         """
-        Сохраняет адрес в базу данных.
+        Сохраняет адрес в базу данных и, если tag_unified не пустой, в таблицу unified_addresses.
         
         Args:
             address (str): Адрес кошелька.
@@ -151,6 +151,25 @@ class ArkhamRepository:
                     address_id = cursor.fetchone()[0]
                     conn.commit()
                     return address_id  # Адрес был создан
+                
+                # Получаем tag_unified из таблицы tags
+                cursor.execute(
+                    "SELECT tag_unified FROM tags WHERE tag_id = %s",
+                    (address,)
+                )
+                tag_unified = cursor.fetchone()
+                
+                if tag_unified and tag_unified[0]:
+                    # Если tag_unified не пустой, сохраняем в unified_addresses
+                    cursor.execute(
+                        """
+                        INSERT INTO unified_addresses (address, type, address_name, labels, source, created_at)
+                        VALUES (%s, %s, %s, '{}', 'akhram-tags', NOW())
+                        """,
+                        (address, tag_unified[0], entity_name)
+                    )
+                    conn.commit()
+                    logging.info(f"Адрес {address} сохранен в unified_addresses с типом {tag_unified[0]}")
         except Exception as e:
             logging.error(f"Ошибка при сохранении адреса {address}: {str(e)}")
             raise e
