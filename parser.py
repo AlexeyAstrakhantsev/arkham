@@ -219,22 +219,27 @@ def process_tag(tag_link, output_file, repository, tag_categories, tags_data):
         for addr_data in address_data:
             addr = addr_data.get('address')
             chain = addr_data.get('chain', 'unknown')
-            entity_name = addr_data.get('entityName') or addr_data.get('entity', {}).get('name', '')
-            entity_type = addr_data.get('entityType') or addr_data.get('entity', {}).get('type', '')
             
-            # Если имя пустое, пытаемся взять его из arkhamLabel
-            if not entity_name:
-                arkham_label = addr_data.get('arkhamLabel', {})
-                entity_name = arkham_label.get('name', '')
+            # Получаем имя из entityName/entity.name
+            entity_name = addr_data.get('entityName') or addr_data.get('entity', {}).get('name', '')
+            
+            # Получаем имя из arkhamLabel
+            arkham_label = addr_data.get('arkhamLabel', {})
+            arkham_name = arkham_label.get('name', '')
+            
+            # Если есть оба имени, объединяем их
+            if entity_name and arkham_name:
+                entity_name = f"{entity_name}: {arkham_name}"
+                logging.debug(f"Имена объединены: {entity_name}")
+            # Если есть только arkhamLabel.name, используем его
+            elif arkham_name:
+                entity_name = arkham_name
                 logging.debug(f"Имя взято из arkhamLabel: {entity_name}")
-                # Логируем полный JSON для адреса с пустым именем
+            # Если нет имени нигде, логируем JSON
+            elif not entity_name:
                 logging.info(f"Адрес с пустым именем. Полный JSON: {json.dumps(addr_data, ensure_ascii=False, indent=2)}")
-            else:
-                # Если имя уже есть, проверяем наличие arkhamLabel
-                arkham_label = addr_data.get('arkhamLabel', {})
-                if arkham_label.get('name'):
-                    entity_name = f"{entity_name}: {arkham_label.get('name')}"
-                    logging.debug(f"Имя объединено: {entity_name}")
+            
+            entity_type = addr_data.get('entityType') or addr_data.get('entity', {}).get('type', '')
             
             # Получаем теги для адреса
             tags = {}
