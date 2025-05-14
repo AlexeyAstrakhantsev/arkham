@@ -244,9 +244,6 @@ def process_tag(tag_link, output_file, repository, tag_categories, tags_data):
             elif arkham_name:
                 entity_name = arkham_name
                 logging.debug(f"Имя взято из arkhamLabel: {entity_name}")
-            # Если нет имени нигде, логируем JSON
-            elif not entity_name:
-                logging.info(f"Адрес с пустым именем. Полный JSON: {json.dumps(addr_data, ensure_ascii=False, indent=2)}")
             
             entity_type = addr_data.get('entityType') or addr_data.get('entity', {}).get('type', '')
             

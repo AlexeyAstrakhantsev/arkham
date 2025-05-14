@@ -162,8 +162,8 @@ class ArkhamRepository:
                 
                 tag_unified_results = cursor.fetchall()
                 
-                if tag_unified_results:
-                    # Если есть теги с tag_unified, сохраняем в unified_addresses
+                if tag_unified_results and entity_name:  # Проверяем, что имя не пустое
+                    # Если есть теги с tag_unified и есть имя, сохраняем в unified_addresses
                     for tag_unified in tag_unified_results:
                         cursor.execute(
                             """
