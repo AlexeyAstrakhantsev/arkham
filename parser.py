@@ -146,6 +146,15 @@ def get_arkham_tag_data(tag_link, page):
                 rate_limit_delay = int(os.getenv("API_RATE_LIMIT_DELAY", "60"))
                 logging.warning(f"Превышен лимит запросов API (429). Ожидание {rate_limit_delay} секунд...")
                 time.sleep(rate_limit_delay)
+            elif response.status_code == 401:
+                # Логируем параметры авторизации
+                logging.error(
+                    f"Ошибка 401 Unauthorized. Параметры авторизации: "
+                    f"ARKHAM_PAYLOAD={os.getenv('ARKHAM_PAYLOAD')}, "
+                    f"ARKHAM_TIMESTAMP={os.getenv('ARKHAM_TIMESTAMP')}, "
+                    f"ARKHAM_SESSION={os.getenv('ARKHAM_SESSION')}"
+                )
+                return {}, False
             elif retry < max_retries - 1:
                 logging.warning(f"HTTP ошибка при запросе: {str(e)}. Повторная попытка {retry+1}/{max_retries} через {retry_delay} сек...")
                 time.sleep(retry_delay)
